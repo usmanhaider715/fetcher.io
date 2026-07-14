@@ -323,7 +323,7 @@ class SettingsManager {
       this.settings = { ...DEFAULT_SETTINGS, ...stored };
     }
     backendApi.setBaseUrl(this.settings.backendUrl);
-    cloudApi.setBaseUrl(this.settings.cloudApiUrl ?? 'https://api.fetcherio.dev');
+    cloudApi.setBaseUrl(this.settings.cloudApiUrl ?? 'https://api.productfetcher.online');
     cloudApi.setAccessToken(this.settings.accessToken ?? null);
 
     if (await backendApi.healthCheck()) {
@@ -344,7 +344,7 @@ class SettingsManager {
     this.settings = { ...this.settings, ...settings };
     await chrome.storage.sync.set({ [STORAGE_KEYS.SETTINGS]: this.settings });
     backendApi.setBaseUrl(this.settings.backendUrl);
-    cloudApi.setBaseUrl(this.settings.cloudApiUrl ?? 'https://api.fetcherio.dev');
+    cloudApi.setBaseUrl(this.settings.cloudApiUrl ?? 'https://api.productfetcher.online');
     cloudApi.setAccessToken(this.settings.accessToken ?? null);
 
     if (await backendApi.healthCheck()) {

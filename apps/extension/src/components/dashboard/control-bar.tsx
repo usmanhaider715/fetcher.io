@@ -1,7 +1,6 @@
 import type { SessionStatus } from '@fetcher/shared';
 import { Pause, Play, RotateCcw, Settings, Square, PanelRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 interface ControlBarProps {
   sessionStatus: SessionStatus;
@@ -31,7 +30,7 @@ export function ControlBar({
   const isActive = isRunning || isPaused;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
         {!isActive && (
           <Button onClick={onStart} disabled={isLoading} className="col-span-2" size="sm">
@@ -65,15 +64,13 @@ export function ControlBar({
           onClick={onNewSession}
           variant="outline"
           size="sm"
-          className={isActive ? '' : 'w-full'}
+          className={isActive ? '' : 'col-span-2'}
           disabled={isLoading}
         >
           <RotateCcw className="h-4 w-4" />
           New Session
         </Button>
       </div>
-
-      <Separator />
 
       <div className="grid grid-cols-2 gap-2">
         <Button onClick={onSettings} variant="outline" size="sm">

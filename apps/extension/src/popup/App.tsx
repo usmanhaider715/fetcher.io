@@ -5,13 +5,23 @@ import { AppProviders } from '@/components/app-providers';
 import { ControlBar } from '@/components/dashboard/control-bar';
 import { DashboardStatsGrid } from '@/components/dashboard/stats-grid';
 import { LogsPanel } from '@/components/dashboard/logs-panel';
+import { BrandHeader } from '@/components/layout/brand-header';
+import { PremiumBackground } from '@/components/layout/premium-background';
 import { Progress } from '@/components/ui/progress';
+import { ProgressRing } from '@/components/ui/progress-ring';
 import { onMessage, sendMessage } from '@/lib/messaging';
 import { useDashboardStore } from '@/stores/dashboard-store';
 import '@/styles/globals.css';
 
 async function fetchDashboardStats(): Promise<DashboardStats> {
   return sendMessage<undefined, DashboardStats>({ type: 'GET_DASHBOARD_STATS' });
+}
+
+function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'success' {
+  if (status === 'running') return 'default';
+  if (status === 'error') return 'destructive';
+  if (status === 'completed') return 'success';
+  return 'secondary';
 }
 
 function Dashboard() {
@@ -26,9 +36,7 @@ function Dashboard() {
   });
 
   useEffect(() => {
-    if (data) {
-      setStats(data);
-    }
+    if (data) setStats(data);
   }, [data, setStats]);
 
   useEffect(() => {
@@ -38,24 +46,19 @@ function Dashboard() {
         queryClient.setQueryData(['dashboard-stats'], message.payload);
       }
       if (message.type === 'SCRAPE_PROGRESS' && message.payload) {
-        const progress = message.payload as DashboardStats;
-        setStats(progress);
+        setStats(message.payload as DashboardStats);
       }
       if (message.type === 'SCRAPE_LOG' && message.payload) {
         addLog(message.payload as LogEntry);
       }
     });
-
     return unsubscribe;
   }, [setStats, addLog, queryClient]);
 
   const handleStart = useCallback(async () => {
     setLoading(true);
     try {
-      await sendMessage({
-        type: 'START_SCRAPE',
-        payload: { mode: 'current_product' },
-      });
+      await sendMessage({ type: 'START_SCRAPE', payload: { mode: 'current_product' } });
       setSessionStatus('running');
       await refetch();
     } finally {
@@ -126,40 +129,56 @@ function Dashboard() {
         ? 5
         : 0;
 
+  const isActive = stats.sessionStatus === 'running' || stats.sessionStatus === 'paused';
+
   return (
-    <div className="flex flex-col gap-3 p-4">
-      <DashboardStatsGrid {...stats} />
+    <div className="premium-bg relative min-h-[560px]">
+      <PremiumBackground />
+      <div className="relative z-10 flex flex-col gap-4 p-4">
+        <BrandHeader
+          status={stats.sessionStatus}
+          statusVariant={statusVariant(stats.sessionStatus)}
+        />
 
-      {stats.sessionStatus === 'running' && (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Progress</span>
-            <span>{progressPercent}%</span>
+        {isActive && (
+          <div className="glass-card flex items-center justify-center gap-4 p-4">
+            <ProgressRing value={progressPercent} label="complete" />
+            <div className="flex-1 space-y-2">
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-muted-foreground">Scrape progress</span>
+                <span className="text-primary">{progressPercent}%</span>
+              </div>
+              <Progress value={progressPercent} className="h-2" />
+              <p className="text-[11px] text-muted-foreground">
+                {stats.productsSaved} of {stats.productsFound} products saved
+              </p>
+            </div>
           </div>
-          <Progress value={progressPercent} className="h-1.5" />
-        </div>
-      )}
+        )}
 
-      <ControlBar
-        sessionStatus={stats.sessionStatus}
-        onStart={handleStart}
-        onPause={handlePause}
-        onResume={handleResume}
-        onStop={handleStop}
-        onNewSession={handleNewSession}
-        onSettings={handleSettings}
-        onOpenSidePanel={handleOpenSidePanel}
-        isLoading={isLoading || isFetching}
-      />
+        <DashboardStatsGrid {...stats} showHeader={false} />
 
-      <LogsPanel logs={logs} />
+        <ControlBar
+          sessionStatus={stats.sessionStatus}
+          onStart={handleStart}
+          onPause={handlePause}
+          onResume={handleResume}
+          onStop={handleStop}
+          onNewSession={handleNewSession}
+          onSettings={handleSettings}
+          onOpenSidePanel={handleOpenSidePanel}
+          isLoading={isLoading || isFetching}
+        />
+
+        <LogsPanel logs={logs} />
+      </div>
     </div>
   );
 }
 
 export function PopupApp() {
   return (
-    <AppProviders>
+    <AppProviders theme="light">
       <Dashboard />
     </AppProviders>
   );

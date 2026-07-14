@@ -2,17 +2,17 @@
 
 > **Status:** Production-ready locally. VPS deployment is **not** performed automatically — use this guide when you are ready to go live.
 
-Production deployment for **fetcherio.dev** on a single Ubuntu 22.04/24.04 VPS with Nginx, PM2, MongoDB, and Redis.
+Production deployment for **productfetcher.online** on a single Ubuntu 22.04/24.04 VPS with Nginx, PM2, MongoDB, and Redis.
 
 ## Architecture
 
 | Subdomain | Purpose | Port |
 |-----------|---------|------|
-| fetcherio.dev / www | Marketing | 3000 |
-| app.fetcherio.dev | Dashboard | 3000 (host routing) |
-| docs.fetcherio.dev | Documentation | 3000 |
-| admin.fetcherio.dev | Admin panel | 3001 |
-| api.fetcherio.dev | Cloud API | 4000 |
+| productfetcher.online / www | Marketing | 3000 |
+| app.productfetcher.online | Dashboard | 3000 (host routing) |
+| docs.productfetcher.online | Documentation | 3000 |
+| admin.productfetcher.online | Admin panel | 3001 |
+| api.productfetcher.online | Cloud API | 4000 |
 
 Local scraping stays in the Chrome extension + `apps/backend` (SQLite, port 3847) on the user's machine.
 
@@ -35,20 +35,20 @@ This script:
 
 In Hostinger DNS panel, add **A records** pointing to your VPS IP:
 
-- `fetcherio.dev`
-- `www.fetcherio.dev`
-- `app.fetcherio.dev`
-- `api.fetcherio.dev`
-- `admin.fetcherio.dev`
-- `docs.fetcherio.dev`
+- `productfetcher.online`
+- `www.productfetcher.online`
+- `app.productfetcher.online`
+- `api.productfetcher.online`
+- `admin.productfetcher.online`
+- `docs.productfetcher.online`
 
 ## 3. TLS certificates
 
 ```bash
 sudo certbot --nginx \
-  -d fetcherio.dev -d www.fetcherio.dev \
-  -d app.fetcherio.dev -d api.fetcherio.dev \
-  -d admin.fetcherio.dev -d docs.fetcherio.dev
+  -d productfetcher.online -d www.productfetcher.online \
+  -d app.productfetcher.online -d api.productfetcher.online \
+  -d admin.productfetcher.online -d docs.productfetcher.online
 ```
 
 ## 4. Environment files
@@ -81,8 +81,8 @@ pm2 startup  # follow printed command
 ## 6. Verify
 
 ```bash
-curl -s https://api.fetcherio.dev/health | jq .
-curl -sI https://fetcherio.dev | head -1
+curl -s https://api.productfetcher.online/health | jq .
+curl -sI https://productfetcher.online | head -1
 ```
 
 ## 7. CI/CD

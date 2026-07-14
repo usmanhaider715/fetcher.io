@@ -9,7 +9,7 @@ const spec = {
     version: '1.0.0',
     description: 'Cloud API for auth, billing, AI proxy, connectors, and job metadata.',
   },
-  servers: [{ url: 'https://api.fetcherio.dev/v1' }, { url: 'http://localhost:4000/v1' }],
+  servers: [{ url: 'https://api.productfetcher.online/v1' }, { url: 'http://localhost:4000/v1' }],
   paths: {
     '/auth/register': { post: { summary: 'Register user' } },
     '/auth/login': { post: { summary: 'Login' } },

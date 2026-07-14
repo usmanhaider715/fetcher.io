@@ -40,7 +40,7 @@ export const config = {
 
   email: {
     resendKey: process.env['RESEND_API_KEY'] ?? '',
-    from: process.env['EMAIL_FROM'] ?? 'noreply@fetcherio.dev',
+    from: process.env['EMAIL_FROM'] ?? 'noreply@productfetcher.online',
   },
 
   corsOrigins: (process.env['CORS_ORIGINS'] ?? 'http://localhost:3000,http://127.0.0.1:3000')

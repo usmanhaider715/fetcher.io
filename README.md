@@ -6,8 +6,8 @@ Local-first e-commerce product intelligence platform.
 |---------|------|---------------|
 | Chrome Extension | `apps/extension` | Chrome Web Store or manual load (not VPS) |
 | Local scrape API | `apps/backend` | User's machine (`localhost:3847`) |
-| Cloud API | `apps/api` | VPS (`api.fetcherio.dev`) |
-| Website + Dashboard | `apps/web` | VPS (`fetcherio.dev`, `app.`, `admin.`, `docs.`) |
+| Cloud API | `apps/api` | VPS (`api.productfetcher.online`) |
+| Website + Dashboard | `apps/web` | VPS (`productfetcher.online`, `app.`, `admin.`, `docs.`) |
 
 ## Quick start (local)
 

@@ -82,8 +82,8 @@ nginx -t && systemctl reload nginx
 
 echo ""
 echo "=== Next steps (manual) ==="
-echo "1. Point DNS A records for fetcherio.dev, app, api, admin, docs to this server's IP"
-echo "2. Run: certbot --nginx -d fetcherio.dev -d www.fetcherio.dev -d app.fetcherio.dev -d api.fetcherio.dev -d admin.fetcherio.dev -d docs.fetcherio.dev"
+echo "1. Point DNS A records for productfetcher.online, app, api, admin, docs to this server's IP"
+echo "2. Run: certbot --nginx -d productfetcher.online -d www.productfetcher.online -d app.productfetcher.online -d api.productfetcher.online -d admin.productfetcher.online -d docs.productfetcher.online"
 echo "3. Copy apps/api/.env.example to apps/api/.env and apps/web/.env.local — fill secrets"
 echo "4. As $DEPLOY_USER: cd $APP_DIR && pnpm install && pnpm build && pm2 start ecosystem.config.cjs"
 echo "5. pm2 save && pm2 startup"

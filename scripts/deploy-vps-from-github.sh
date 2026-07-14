@@ -16,6 +16,7 @@ pnpm install --frozen-lockfile
 pnpm --filter @fetcher/shared build
 pnpm --filter @fetcher/api build
 pnpm --filter @fetcher/web build
+bash scripts/postbuild-web-standalone.sh
 
 if pm2 describe fetcherio-api >/dev/null 2>&1; then
   pm2 reload ecosystem.config.cjs --update-env

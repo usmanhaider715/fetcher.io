@@ -19,9 +19,14 @@ const levelConfig = {
 
 export function LogsPanel({ logs, maxHeight = '160px' }: LogsPanelProps) {
   return (
-    <Card className="gradient-border">
-      <CardHeader className="p-3 pb-0">
-        <CardTitle className="text-sm">Logs</CardTitle>
+    <Card className="gradient-border overflow-hidden">
+      <CardHeader className="border-b border-border/40 bg-primary/5 p-3 pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm font-bold">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Info className="h-3.5 w-3.5" />
+          </span>
+          Live Logs
+        </CardTitle>
       </CardHeader>
       <CardContent className="p-3 pt-2">
         <ScrollArea style={{ height: maxHeight }}>
@@ -37,7 +42,7 @@ export function LogsPanel({ logs, maxHeight = '160px' }: LogsPanelProps) {
                 return (
                   <div
                     key={log.id}
-                    className="flex items-start gap-2 rounded-lg bg-secondary/50 p-2 text-xs"
+                    className="flex items-start gap-2 rounded-xl border border-border/40 bg-white/50 p-2.5 text-xs backdrop-blur-sm"
                   >
                     <Icon className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', config.color)} />
                     <div className="min-w-0 flex-1">

@@ -13,7 +13,7 @@ export const APP_DESCRIPTION =
   'Professional e-commerce scraping platform with local storage and image management';
 
 export const DEFAULT_BACKEND_URL = 'http://localhost:3847';
-export const DEFAULT_CLOUD_API_URL = 'https://api.fetcherio.dev';
+export const DEFAULT_CLOUD_API_URL = 'https://api.productfetcher.online';
 
 export const STORAGE_KEYS = {
   SETTINGS: 'fetcher_settings',

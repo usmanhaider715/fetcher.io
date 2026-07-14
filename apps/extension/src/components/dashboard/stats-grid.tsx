@@ -3,6 +3,7 @@ import { Download, Globe, Image, Package, AlertTriangle, Clock, Search } from 'l
 import { cn, formatNumber, getPlatformLabel } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { BrandHeader } from '@/components/layout/brand-header';
 
 interface StatCardProps {
   label: string;
@@ -13,22 +14,22 @@ interface StatCardProps {
 
 function StatCard({ label, value, icon, variant = 'default' }: StatCardProps) {
   return (
-    <Card className="gradient-border">
+    <Card className="gradient-border overflow-hidden transition-transform hover:scale-[1.02]">
       <CardContent className="flex items-center gap-3 p-3">
         <div
           className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
-            variant === 'default' && 'bg-primary/10 text-primary',
-            variant === 'success' && 'bg-success/10 text-success',
-            variant === 'warning' && 'bg-warning/10 text-warning',
-            variant === 'destructive' && 'bg-destructive/10 text-destructive',
+            'icon-3d h-10 w-10 shrink-0',
+            variant === 'default' && 'text-primary',
+            variant === 'success' && 'text-success',
+            variant === 'warning' && 'text-warning',
+            variant === 'destructive' && 'text-destructive',
           )}
         >
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="truncate text-lg font-semibold tabular-nums">
+          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+          <p className="truncate text-xl font-bold tabular-nums tracking-tight">
             {typeof value === 'number' ? formatNumber(value) : value}
           </p>
         </div>
@@ -48,6 +49,15 @@ interface DashboardStatsProps {
   crawlMethod?: string;
   errors: number;
   sessionStatus: string;
+  showHeader?: boolean;
+  compact?: boolean;
+}
+
+function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'success' {
+  if (status === 'running') return 'default';
+  if (status === 'error') return 'destructive';
+  if (status === 'completed') return 'success';
+  return 'secondary';
 }
 
 export function DashboardStatsGrid({
@@ -61,6 +71,8 @@ export function DashboardStatsGrid({
   crawlMethod,
   errors,
   sessionStatus,
+  showHeader = true,
+  compact = false,
 }: DashboardStatsProps) {
   const displayUrl = currentUrl
     ? currentUrl.length > 45
@@ -70,79 +82,54 @@ export function DashboardStatsGrid({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Package className="h-4 w-4" />
-          </div>
-          <div>
-            <h1 className="text-sm font-semibold">{APP_NAME}</h1>
-            <p className="text-xs text-muted-foreground">Product Scraper</p>
-          </div>
-        </div>
-        <Badge
-          variant={
-            sessionStatus === 'running'
-              ? 'default'
-              : sessionStatus === 'error'
-                ? 'destructive'
-                : sessionStatus === 'completed'
-                  ? 'success'
-                  : 'secondary'
-          }
-          className="capitalize"
-        >
-          {sessionStatus}
-        </Badge>
-      </div>
+      {showHeader && (
+        <BrandHeader
+          status={sessionStatus}
+          statusVariant={statusVariant(sessionStatus)}
+          subtitle={compact ? undefined : 'Product Scraper'}
+          compact={compact}
+        />
+      )}
 
       <Card className="gradient-border">
-        <CardContent className="space-y-2 p-3">
-          <div className="flex items-start gap-2">
-            <Globe className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <CardContent className="space-y-2.5 p-3">
+          <div className="flex items-start gap-2.5">
+            <div className="icon-3d h-8 w-8 shrink-0 text-primary">
+              <Globe className="h-4 w-4" />
+            </div>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Current URL</p>
-              <p className="break-all text-xs font-medium" title={currentUrl}>
+              <p className="text-[11px] font-medium text-muted-foreground">Current URL</p>
+              <p className="break-all text-xs font-semibold" title={currentUrl}>
                 {displayUrl}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Platform:</span>
-            <Badge variant="outline" className="text-xs">
+            <span className="text-[11px] text-muted-foreground">Platform</span>
+            <Badge variant="outline" className="border-primary/20 bg-primary/5 text-xs text-primary">
               {getPlatformLabel(detectedPlatform)}
             </Badge>
           </div>
           {crawlMethod && pagesDiscovered !== undefined && pagesDiscovered > 0 && (
-            <div className="flex items-center gap-2">
-              <Search className="h-3 w-3 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">
-                Crawl ({crawlMethod}): {formatNumber(pagesDiscovered)} discovered
-              </span>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Search className="h-3.5 w-3.5 text-primary" />
+              Crawl ({crawlMethod}): {formatNumber(pagesDiscovered)} discovered
             </div>
           )}
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-2 gap-2">
-        <StatCard
-          label="Products Found"
-          value={productsFound}
-          icon={<Package className="h-4 w-4" />}
-        />
+        <StatCard label="Products Found" value={productsFound} icon={<Package className="h-4 w-4" />} />
         <StatCard
           label="Products Saved"
           value={productsSaved}
           icon={<Download className="h-4 w-4" />}
           variant="success"
         />
+        <StatCard label="Images" value={imagesDownloaded} icon={<Image className="h-4 w-4" />} />
         <StatCard
-          label="Images Downloaded"
-          value={imagesDownloaded}
-          icon={<Image className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Images Pending"
+          label="Pending"
           value={imagesPending}
           icon={<Clock className="h-4 w-4" />}
           variant={imagesPending > 0 ? 'warning' : 'default'}
@@ -155,5 +142,11 @@ export function DashboardStatsGrid({
         />
       </div>
     </div>
+  );
+}
+
+export function DashboardStatsCompact(props: DashboardStatsProps) {
+  return (
+    <DashboardStatsGrid {...props} showHeader={false} compact />
   );
 }

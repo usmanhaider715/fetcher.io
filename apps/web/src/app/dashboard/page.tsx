@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { FolderPlus, Package, Plus } from 'lucide-react';
 import { api, getAccessToken } from '@/lib/api';
 
 export default function DashboardPage() {
@@ -31,38 +32,68 @@ export default function DashboardPage() {
     setNewName('');
   }
 
-  if (loading) return <p className="text-muted">Loading…</p>;
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 text-muted-foreground">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        Loading…
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Projects</h1>
-      <p className="mt-2 text-muted">A project is a scraping workspace with its own categories and tags.</p>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
+        <p className="mt-2 text-muted-foreground">
+          A project is a scraping workspace with its own categories and tags.
+        </p>
+      </div>
 
-      <form onSubmit={createProject} className="mt-6 flex gap-2">
+      <form onSubmit={createProject} className="glass-card gradient-border mb-8 flex gap-3 p-4">
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="New project name"
-          className="flex-1 rounded-lg border border-white/20 bg-card px-4 py-2"
+          className="input-premium flex-1"
         />
-        <button type="submit" className="rounded-lg bg-accent px-4 py-2 font-semibold">
+        <button type="submit" className="btn-primary shrink-0 px-5 py-2 text-sm">
+          <Plus className="h-4 w-4" />
           Create
         </button>
       </form>
 
       {projects.length === 0 ? (
-        <div className="mt-12 rounded-xl border border-dashed border-white/20 p-12 text-center">
-          <p className="text-muted">No projects yet. Create one above or scrape from the Chrome extension.</p>
-          <Link href="/docs/getting-started" className="mt-4 inline-block text-accent">
+        <div className="glass-card gradient-border flex flex-col items-center p-16 text-center">
+          <div className="icon-3d mb-4 h-16 w-16">
+            <FolderPlus className="h-8 w-8" />
+          </div>
+          <p className="text-lg font-semibold">No projects yet</p>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+            Create one above or scrape from the Chrome extension.
+          </p>
+          <Link href="/docs/getting-started" className="btn-secondary mt-6 text-sm">
             Getting started guide →
           </Link>
         </div>
       ) : (
-        <ul className="mt-8 grid gap-4 md:grid-cols-2">
+        <ul className="grid gap-4 md:grid-cols-2">
           {projects.map((p) => (
-            <li key={p._id} className="rounded-xl border border-white/10 p-6">
-              <h2 className="font-semibold">{p.name}</h2>
-              {p.description && <p className="mt-1 text-sm text-muted">{p.description}</p>}
+            <li
+              key={p._id}
+              className="glass-card gradient-border group p-6 transition-transform hover:scale-[1.01] hover:shadow-premium-lg"
+            >
+              <div className="flex items-start gap-4">
+                <div className="icon-3d h-12 w-12 shrink-0">
+                  <Package className="h-6 w-6" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-foreground group-hover:text-primary">{p.name}</h2>
+                  {p.description && (
+                    <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>
+                  )}
+                </div>
+              </div>
             </li>
           ))}
         </ul>

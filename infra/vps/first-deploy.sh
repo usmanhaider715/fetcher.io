@@ -44,9 +44,9 @@ JWT_ACCESS_SECRET=${JWT_ACCESS}
 JWT_REFRESH_SECRET=${JWT_REFRESH}
 JWT_ACCESS_EXPIRES=15m
 JWT_REFRESH_EXPIRES=7d
-CORS_ORIGINS=http://fetcherio.dev,http://www.fetcherio.dev,http://app.fetcherio.dev,http://admin.fetcherio.dev,https://fetcherio.dev,https://www.fetcherio.dev,https://app.fetcherio.dev,https://admin.fetcherio.dev
-WEB_URL=http://app.fetcherio.dev
-MARKETING_URL=http://fetcherio.dev
+CORS_ORIGINS=http://productfetcher.online,http://www.productfetcher.online,http://app.productfetcher.online,http://admin.productfetcher.online,https://productfetcher.online,https://www.productfetcher.online,https://app.productfetcher.online,https://admin.productfetcher.online
+WEB_URL=http://app.productfetcher.online
+MARKETING_URL=http://productfetcher.online
 EOF
   chmod 600 apps/api/.env
   echo "→ Created apps/api/.env"
@@ -55,9 +55,9 @@ else
 fi
 
 cat > apps/web/.env.local <<EOF
-NEXT_PUBLIC_API_URL=http://api.fetcherio.dev
-NEXT_PUBLIC_MARKETING_URL=http://fetcherio.dev
-NEXT_PUBLIC_APP_URL=http://app.fetcherio.dev
+NEXT_PUBLIC_API_URL=http://api.productfetcher.online
+NEXT_PUBLIC_MARKETING_URL=http://productfetcher.online
+NEXT_PUBLIC_APP_URL=http://app.productfetcher.online
 EOF
 
 echo "→ Installing dependencies…"
@@ -67,6 +67,7 @@ echo "→ Building…"
 pnpm --filter @fetcher/shared build
 pnpm --filter @fetcher/api build
 pnpm --filter @fetcher/web build
+bash scripts/postbuild-web-standalone.sh
 
 echo "→ Starting PM2 (fetcherio-* only)…"
 pm2 delete fetcherio-api fetcherio-worker fetcherio-web fetcherio-admin 2>/dev/null || true
@@ -86,12 +87,12 @@ curl -sf http://127.0.0.1:3020 -o /dev/null
 echo ""
 echo "=========================================="
 echo " ✓ Fetcher.io deployed (DailyLens untouched)"
-echo " Web:  http://fetcherio.dev"
-echo " API:  http://api.fetcherio.dev/health"
-echo " App:  http://app.fetcherio.dev"
-echo " Admin: http://admin.fetcherio.dev"
+echo " Web:  http://productfetcher.online"
+echo " API:  http://api.productfetcher.online/health"
+echo " App:  http://app.productfetcher.online"
+echo " Admin: http://admin.productfetcher.online"
 echo ""
-echo " Next: certbot --nginx -d fetcherio.dev -d www.fetcherio.dev \\"
-echo "   -d app.fetcherio.dev -d api.fetcherio.dev -d admin.fetcherio.dev -d docs.fetcherio.dev"
+echo " Next: certbot --nginx -d productfetcher.online -d www.productfetcher.online \\"
+echo "   -d app.productfetcher.online -d api.productfetcher.online -d admin.productfetcher.online -d docs.productfetcher.online"
 echo "=========================================="
 pm2 status

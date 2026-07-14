@@ -20,7 +20,7 @@ Use this before pushing to GitHub and deploying to Hostinger VPS.
 - [ ] Add secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
 
 ### Domain & DNS (Hostinger panel)
-- [ ] Register `fetcherio.dev` (or your domain)
+- [ ] Register `productfetcher.online` (or your domain)
 - [ ] A records → VPS IP: `@`, `www`, `app`, `api`, `admin`, `docs`
 
 ### VPS (`apps/api/.env`)
@@ -33,19 +33,19 @@ Use this before pushing to GitHub and deploying to Hostinger VPS.
 - [ ] `CORS_ORIGINS` — production domains
 
 ### VPS (`apps/web/.env.local`)
-- [ ] `NEXT_PUBLIC_API_URL=https://api.fetcherio.dev`
-- [ ] `NEXT_PUBLIC_MARKETING_URL=https://fetcherio.dev`
-- [ ] `NEXT_PUBLIC_APP_URL=https://app.fetcherio.dev`
+- [ ] `NEXT_PUBLIC_API_URL=https://api.productfetcher.online`
+- [ ] `NEXT_PUBLIC_MARKETING_URL=https://productfetcher.online`
+- [ ] `NEXT_PUBLIC_APP_URL=https://app.productfetcher.online`
 
 ### Stripe Dashboard
 - [ ] Create products/prices: Starter, Pro, Team
-- [ ] Webhook endpoint: `https://api.fetcherio.dev/webhooks/stripe`
+- [ ] Webhook endpoint: `https://api.productfetcher.online/webhooks/stripe`
 - [ ] Events: `checkout.session.completed`, `customer.subscription.deleted`
 
 ### Chrome Extension (separate from VPS)
 - [ ] Build: `pnpm --filter @fetcher/extension build`
 - [ ] Publish to Chrome Web Store OR distribute `apps/extension/dist` as ZIP
-- [ ] Set default `cloudApiUrl` in extension options to `https://api.fetcherio.dev`
+- [ ] Set default `cloudApiUrl` in extension options to `https://api.productfetcher.online`
 
 ## 🔲 Optional / post-launch (Master doc phases not fully built)
 
@@ -92,7 +92,7 @@ pnpm --filter @fetcher/api build
 pnpm --filter @fetcher/web build
 pm2 start ecosystem.config.cjs
 pm2 save
-sudo certbot --nginx -d fetcherio.dev -d www.fetcherio.dev -d app.fetcherio.dev -d api.fetcherio.dev -d admin.fetcherio.dev -d docs.fetcherio.dev
+sudo certbot --nginx -d productfetcher.online -d www.productfetcher.online -d app.productfetcher.online -d api.productfetcher.online -d admin.productfetcher.online -d docs.productfetcher.online
 ```
 
 Then trigger **Deploy to VPS** workflow for future updates.

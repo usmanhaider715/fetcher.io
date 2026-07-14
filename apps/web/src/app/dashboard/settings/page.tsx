@@ -25,7 +25,7 @@ export default function SettingsPage() {
         </div>
         <div className="rounded-xl border border-white/10 p-6">
           <h2 className="font-semibold">Theme</h2>
-          <p className="mt-2 text-sm text-muted">Dark mode is the default across Fetcher.io.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Light purple theme is the default across Fetcher.io.</p>
         </div>
         <div className="rounded-xl border border-red-500/30 p-6">
           <h2 className="font-semibold text-red-300">Danger zone</h2>
