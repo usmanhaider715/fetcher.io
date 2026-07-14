@@ -1,6 +1,5 @@
 name: Deploy to VPS
 
-# Manual only — do not auto-deploy until VPS is configured and secrets are set.
 on:
   workflow_dispatch:
     inputs:
@@ -13,22 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.inputs.confirm == 'deploy'
     steps:
-      - name: Deploy via SSH
+      - name: Deploy via SSH (shared DailyLens VPS)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 30m
+          script_stop: true
           script: |
             set -e
             cd /var/www/fetcherio
-            git pull origin main
-            pnpm install --frozen-lockfile
-            pnpm --filter @fetcher/shared build
-            pnpm --filter @fetcher/api build
-            pnpm --filter @fetcher/web build
-            pm2 reload ecosystem.config.cjs --update-env
-            sleep 5
-            curl -sf https://api.fetcherio.dev/health | grep -q '"status":"ok"' || (echo "API health check failed" && exit 1)
-            curl -sf https://fetcherio.dev -o /dev/null || (echo "Web health check failed" && exit 1)
-            echo "Deploy successful"
+            bash scripts/deploy-vps-from-github.sh
