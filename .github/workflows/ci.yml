@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: |
+          pnpm --filter @fetcher/shared build
+          pnpm --filter @fetcher/parsers build
+          pnpm --filter @fetcher/selectors build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build API
+        run: pnpm --filter @fetcher/api build
+        env:
+          JWT_ACCESS_SECRET: ci-access-secret-minimum-32-characters
+          JWT_REFRESH_SECRET: ci-refresh-secret-minimum-32-characters
+          MONGODB_URI: mongodb://127.0.0.1:27017/fetcherio-ci
+          REDIS_URL: redis://127.0.0.1:6379
+
+      - name: Build web
+        run: pnpm --filter @fetcher/web build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+
+      - name: Build extension
+        run: pnpm --filter @fetcher/extension build
+
+      - name: Test
+        run: pnpm test
+        env:
+          JWT_ACCESS_SECRET: ci-access-secret-minimum-32-characters
+          JWT_REFRESH_SECRET: ci-refresh-secret-minimum-32-characters
+
+      - name: Security audit
+        run: pnpm audit --audit-level=high || true

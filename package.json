@@ -1,0 +1,44 @@
+{
+  "name": "fetcher-io",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Enterprise-grade e-commerce scraping platform",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm run dev:all",
+    "dev:all": "concurrently -n api,backend,web,ext -c cyan,blue,green,magenta \"pnpm dev:api\" \"pnpm dev:backend\" \"pnpm dev:web\" \"pnpm dev:extension\"",
+    "dev:api": "pnpm --filter @fetcher/api dev",
+    "dev:web": "pnpm --filter @fetcher/web dev",
+    "dev:extension": "pnpm --filter @fetcher/extension dev",
+    "dev:backend": "pnpm --filter @fetcher/backend dev",
+    "start:api": "pnpm --filter @fetcher/api start",
+    "start:backend": "pnpm --filter @fetcher/backend start",
+    "start:web": "pnpm --filter @fetcher/web start",
+    "db:push": "pnpm --filter @fetcher/backend db:push",
+    "db:studio": "pnpm --filter @fetcher/backend db:studio",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-react": "^7.37.4",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "prettier-plugin-tailwindcss": "^0.6.11",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0"
+  }
+}

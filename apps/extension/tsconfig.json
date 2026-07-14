@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@fetcher/shared": ["../../packages/shared/src"],
+      "@fetcher/shared/*": ["../../packages/shared/src/*"],
+      "@fetcher/parsers": ["../../packages/parsers/src"],
+      "@fetcher/selectors": ["../../packages/selectors/src"]
+    }
+  },
+  "include": ["src/**/*", "vite.config.ts", "manifest.config.ts"]
+}

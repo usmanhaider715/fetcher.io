@@ -1,0 +1,42 @@
+export const PLANS = [
+  {
+    id: 'free',
+    name: 'Free',
+    price: '$0',
+    cta: 'Get started',
+    highlighted: false,
+    features: ['1 device', '1 seat', '10 AI calls/mo', 'Local scraping', 'CSV/JSON export'],
+  },
+  {
+    id: 'starter',
+    name: 'Starter',
+    price: '$29',
+    cta: 'Start trial',
+    highlighted: false,
+    features: ['2 devices', '1 seat', '100 AI calls/mo', '1 connector', 'Job history sync'],
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    price: '$79',
+    cta: 'Start trial',
+    highlighted: true,
+    features: ['3 devices', '3 seats', '500 AI calls/mo', '3 connectors', 'API keys', 'Priority support'],
+  },
+  {
+    id: 'team',
+    name: 'Team',
+    price: '$199',
+    cta: 'Start trial',
+    highlighted: false,
+    features: ['10 devices', '10 seats', '2,000 AI calls/mo', 'Unlimited connectors', 'Webhooks', 'Audit log'],
+  },
+  {
+    id: 'enterprise',
+    name: 'Enterprise',
+    price: 'Custom',
+    cta: 'Contact sales',
+    highlighted: false,
+    features: ['Unlimited devices', 'Unlimited seats', 'Custom AI quota', 'SSO', 'SLA', 'Dedicated support'],
+  },
+] as const;
