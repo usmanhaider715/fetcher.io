@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
+    "seed:mock-users": "tsx scripts/seed-mock-users.ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
