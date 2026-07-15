@@ -7,7 +7,6 @@ import { Check, Copy, Link2, Puzzle } from 'lucide-react';
 import { api, getAccessToken, restoreSession } from '@/lib/api';
 
 const EXTENSION_ID = process.env.NEXT_PUBLIC_EXTENSION_ID ?? '';
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.productfetcher.online';
 
 type LinkStatus = 'idle' | 'linking' | 'linked' | 'no-extension' | 'error';
 
