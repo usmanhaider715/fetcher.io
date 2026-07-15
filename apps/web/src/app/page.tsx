@@ -102,13 +102,13 @@ export default function HomePage() {
             </div>
           </div>
           <div className="relative animate-fade-up lg:pl-4" style={{ animationDelay: '0.15s' }}>
-            <div className="gradient-border overflow-hidden rounded-3xl shadow-premium-lg">
+            <div className="gradient-border overflow-hidden rounded-3xl bg-white/80 shadow-premium-lg">
               <Image
-                src="/images/hero-mockup.png"
-                alt="Fetcher.io dashboard and extension preview"
-                width={800}
-                height={500}
-                className="w-full object-cover"
+                src="/images/dashboard-mockup.png"
+                alt="Fetcher.io dashboard — projects, stats, and product discovery score"
+                width={900}
+                height={560}
+                className="w-full object-contain"
                 priority
               />
             </div>

@@ -229,7 +229,7 @@ function SidePanel() {
   }, [recordedSelectors]);
 
   const scraperContent = (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-3">
       {resumable && stats.sessionStatus === 'interrupted' && (
         <Card className="border-warning/40 bg-warning/5">
           <CardContent className="space-y-2 p-4">
@@ -242,24 +242,24 @@ function SidePanel() {
       )}
 
       <Card className="gradient-border">
-        <CardHeader className="p-4 pb-2">
+        <CardHeader className="p-3 pb-2">
           <CardTitle className="text-sm">Scraping Mode</CardTitle>
           <CardDescription className="text-xs">Select how products should be scraped</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 p-4 pt-0">
+        <CardContent className="space-y-2 p-3 pt-0">
           {SCRAPING_MODES.map((mode) => (
             <button
               key={mode.value}
               type="button"
               onClick={() => setSelectedMode(mode.value)}
-              className={`w-full rounded-xl border p-3 text-left transition-all duration-200 ${
+              className={`w-full min-w-0 rounded-xl border p-2.5 text-left transition-all duration-200 ${
                 selectedMode === mode.value
                   ? 'border-primary/40 bg-primary/5 shadow-premium'
                   : 'border-border/60 hover:border-primary/20 hover:bg-accent/40'
               }`}
             >
               <p className="text-sm font-semibold">{mode.label}</p>
-              <p className="text-xs text-muted-foreground">{mode.description}</p>
+              <p className="break-words text-xs text-muted-foreground">{mode.description}</p>
             </button>
           ))}
         </CardContent>
@@ -273,12 +273,14 @@ function SidePanel() {
         <UrlImportPanel mode={selectedMode} urls={importUrls} onChange={setImportUrls} />
       )}
 
-      <Card className="gradient-border">
-        <CardHeader className="p-4 pb-2">
-          <div className="flex items-center justify-between">
-            <div>
+      <Card className="gradient-border min-w-0">
+        <CardHeader className="p-3 pb-2">
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            <div className="min-w-0">
               <CardTitle className="text-sm">Selector Recorder</CardTitle>
-              <CardDescription className="text-xs">Record CSS selectors by clicking elements</CardDescription>
+              <CardDescription className="break-words text-xs">
+                Record CSS selectors by clicking elements
+              </CardDescription>
             </div>
             {isRecording && (
               <Badge variant="destructive" className="animate-pulse-soft">
@@ -287,7 +289,7 @@ function SidePanel() {
             )}
           </div>
         </CardHeader>
-        <CardContent className="flex gap-2 p-4 pt-0">
+        <CardContent className="flex gap-2 p-3 pt-0">
           {!isRecording ? (
             <Button onClick={handleStartRecording} variant="outline" size="sm" className="flex-1">
               <Crosshair className="h-4 w-4" />
@@ -330,41 +332,53 @@ function SidePanel() {
   );
 
   return (
-    <div className="premium-bg relative flex h-screen">
+    <div className="premium-bg relative flex h-screen min-w-0 flex-col overflow-hidden">
       <PremiumBackground />
-      <aside className="relative z-10 flex w-[200px] shrink-0 flex-col border-r border-border/50 glass p-3">
-        <BrandHeader
-          status={stats.sessionStatus}
-          compact
-          className="mb-4 px-1"
-        />
-        <SidebarNav items={NAV_ITEMS} activeId={activeNav} onChange={setActiveNav} />
-      </aside>
 
-      <main className="relative z-10 flex-1 overflow-y-auto p-4">
-        {activeNav === 'scraper' && scraperContent}
-        {activeNav === 'page' && <DashboardStatsGrid {...stats} showHeader={false} />}
-        {activeNav === 'preview' && <LogsPanel logs={logs} maxHeight="calc(100vh - 120px)" />}
-        {activeNav === 'downloads' && (
-          <div className="space-y-4">
-            <ExportPanel />
-            <ConnectorsPanel />
-          </div>
-        )}
-        {activeNav === 'settings' && (
-          <Card className="gradient-border">
-            <CardContent className="space-y-4 p-6">
-              <p className="text-sm text-muted-foreground">
-                Open the full settings page to configure scraping, AI, connectors, and cloud sync.
-              </p>
-              <Button onClick={handleSettings}>
-                <Settings className="h-4 w-4" />
-                Open Settings
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-      </main>
+      {/* Top bar — full width */}
+      <header className="relative z-10 shrink-0 border-b border-border/50 glass px-3 py-2.5">
+        <BrandHeader status={stats.sessionStatus} minimal />
+      </header>
+
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
+        {/* Icon rail — narrow for Chrome side panel */}
+        <aside className="flex w-12 shrink-0 flex-col border-r border-border/50 glass px-1 py-2">
+          <SidebarNav
+            items={NAV_ITEMS}
+            activeId={activeNav}
+            onChange={setActiveNav}
+            compact
+          />
+        </aside>
+
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
+          <p className="mb-3 text-xs font-semibold text-muted-foreground">
+            {NAV_ITEMS.find((n) => n.id === activeNav)?.label}
+          </p>
+          {activeNav === 'scraper' && scraperContent}
+          {activeNav === 'page' && <DashboardStatsGrid {...stats} showHeader={false} />}
+          {activeNav === 'preview' && <LogsPanel logs={logs} maxHeight="calc(100vh - 160px)" />}
+          {activeNav === 'downloads' && (
+            <div className="space-y-4">
+              <ExportPanel />
+              <ConnectorsPanel />
+            </div>
+          )}
+          {activeNav === 'settings' && (
+            <Card className="gradient-border">
+              <CardContent className="space-y-4 p-4">
+                <p className="text-sm text-muted-foreground">
+                  Open the full settings page to configure scraping, AI, connectors, and cloud sync.
+                </p>
+                <Button onClick={handleSettings} size="sm">
+                  <Settings className="h-4 w-4" />
+                  Open Settings
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

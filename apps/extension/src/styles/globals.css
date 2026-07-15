@@ -182,14 +182,32 @@
   animation-delay: -5s;
 }
 
-/* Extension popup dimensions */
+/* Extension popup — fixed 400px width, fits Chrome max ~600px height */
 html.popup,
-html.popup body,
-#popup-root {
+html.popup body {
   width: 400px;
-  min-height: 560px;
+  max-width: 400px;
   margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#popup-root,
+.popup-shell {
+  width: 400px;
+  max-width: 400px;
+  margin: 0;
+}
+
+.popup-shell {
+  max-height: 600px;
+  overflow: hidden;
+}
+
+.popup-content {
+  max-height: 600px;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 html.options,
@@ -205,4 +223,5 @@ html.sidepanel body,
   width: 100%;
   min-height: 100vh;
   margin: 0;
+  overflow-x: hidden;
 }

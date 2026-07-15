@@ -8,7 +8,6 @@ import { LogsPanel } from '@/components/dashboard/logs-panel';
 import { BrandHeader } from '@/components/layout/brand-header';
 import { PremiumBackground } from '@/components/layout/premium-background';
 import { Progress } from '@/components/ui/progress';
-import { ProgressRing } from '@/components/ui/progress-ring';
 import { onMessage, sendMessage } from '@/lib/messaging';
 import { useDashboardStore } from '@/stores/dashboard-store';
 import '@/styles/globals.css';
@@ -132,31 +131,29 @@ function Dashboard() {
   const isActive = stats.sessionStatus === 'running' || stats.sessionStatus === 'paused';
 
   return (
-    <div className="premium-bg relative min-h-[560px]">
+    <div className="popup-shell premium-bg relative">
       <PremiumBackground />
-      <div className="relative z-10 flex flex-col gap-4 p-4">
+      <div className="popup-content relative z-10 flex flex-col gap-2.5 p-3">
         <BrandHeader
           status={stats.sessionStatus}
           statusVariant={statusVariant(stats.sessionStatus)}
+          minimal
         />
 
         {isActive && (
-          <div className="glass-card flex items-center justify-center gap-4 p-4">
-            <ProgressRing value={progressPercent} label="complete" />
-            <div className="flex-1 space-y-2">
-              <div className="flex justify-between text-xs font-medium">
-                <span className="text-muted-foreground">Scrape progress</span>
-                <span className="text-primary">{progressPercent}%</span>
-              </div>
-              <Progress value={progressPercent} className="h-2" />
-              <p className="text-[11px] text-muted-foreground">
-                {stats.productsSaved} of {stats.productsFound} products saved
-              </p>
+          <div className="glass-card space-y-1.5 p-2.5">
+            <div className="flex justify-between text-[10px] font-medium">
+              <span className="text-muted-foreground">Progress</span>
+              <span className="text-primary">{progressPercent}%</span>
             </div>
+            <Progress value={progressPercent} className="h-1.5" />
+            <p className="text-[10px] text-muted-foreground">
+              {stats.productsSaved} / {stats.productsFound} saved
+            </p>
           </div>
         )}
 
-        <DashboardStatsGrid {...stats} showHeader={false} />
+        <DashboardStatsGrid {...stats} showHeader={false} popup />
 
         <ControlBar
           sessionStatus={stats.sessionStatus}
@@ -168,9 +165,10 @@ function Dashboard() {
           onSettings={handleSettings}
           onOpenSidePanel={handleOpenSidePanel}
           isLoading={isLoading || isFetching}
+          compact
         />
 
-        <LogsPanel logs={logs} />
+        <LogsPanel logs={logs} maxHeight="72px" compact />
       </div>
     </div>
   );

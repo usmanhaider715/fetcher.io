@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 interface LogsPanelProps {
   logs: LogEntry[];
   maxHeight?: string;
+  compact?: boolean;
 }
 
 const levelConfig = {
@@ -17,18 +18,18 @@ const levelConfig = {
   success: { icon: CheckCircle2, variant: 'success' as const, color: 'text-success' },
 };
 
-export function LogsPanel({ logs, maxHeight = '160px' }: LogsPanelProps) {
+export function LogsPanel({ logs, maxHeight = '160px', compact = false }: LogsPanelProps) {
   return (
-    <Card className="gradient-border overflow-hidden">
-      <CardHeader className="border-b border-border/40 bg-primary/5 p-3 pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-bold">
-          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Info className="h-3.5 w-3.5" />
+    <Card className="gradient-border min-w-0 overflow-hidden">
+      <CardHeader className={cn('border-b border-border/40 bg-primary/5', compact ? 'p-2 pb-1.5' : 'p-3 pb-2')}>
+        <CardTitle className={cn('flex items-center gap-2 font-bold', compact ? 'text-xs' : 'text-sm')}>
+          <span className={cn('flex items-center justify-center rounded-lg bg-primary/10 text-primary', compact ? 'h-5 w-5' : 'h-6 w-6')}>
+            <Info className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
           </span>
           Live Logs
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-3 pt-2">
+      <CardContent className={cn(compact ? 'p-2 pt-1.5' : 'p-3 pt-2')}>
         <ScrollArea style={{ height: maxHeight }}>
           {logs.length === 0 ? (
             <p className="py-4 text-center text-xs text-muted-foreground">No logs yet</p>

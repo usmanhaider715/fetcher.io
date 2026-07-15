@@ -8,36 +8,49 @@ interface BrandHeaderProps {
   statusVariant?: 'default' | 'secondary' | 'destructive' | 'success';
   subtitle?: string;
   compact?: boolean;
+  minimal?: boolean;
   className?: string;
+}
+
+function statusVariantFromStatus(status: string): BrandHeaderProps['statusVariant'] {
+  if (status === 'running') return 'default';
+  if (status === 'error') return 'destructive';
+  if (status === 'completed') return 'success';
+  return 'secondary';
 }
 
 export function BrandHeader({
   status,
-  statusVariant = 'secondary',
+  statusVariant,
   subtitle = 'Product Scraper',
   compact = false,
+  minimal = false,
   className,
 }: BrandHeaderProps) {
+  const badgeVariant = statusVariant ?? (status ? statusVariantFromStatus(status) : 'secondary');
+
   return (
-    <div className={cn('flex items-center justify-between', className)}>
-      <div className="flex items-center gap-3">
+    <div className={cn('flex min-w-0 items-center justify-between gap-2', className)}>
+      <div className="flex min-w-0 items-center gap-2">
         <div
           className={cn(
             'icon-3d shrink-0 bg-gradient-to-br from-primary to-purple-500 text-white shadow-glow',
-            compact ? 'h-9 w-9' : 'h-10 w-10',
+            minimal ? 'h-8 w-8' : compact ? 'h-8 w-8' : 'h-10 w-10',
           )}
         >
-          <Sparkles className={cn(compact ? 'h-4 w-4' : 'h-5 w-5')} />
+          <Sparkles className={cn(minimal || compact ? 'h-3.5 w-3.5' : 'h-5 w-5')} />
         </div>
-        <div>
-          <h1 className={cn('font-bold tracking-tight', compact ? 'text-sm' : 'text-base')}>
+        <div className="min-w-0">
+          <h1 className={cn('truncate font-bold tracking-tight', minimal ? 'text-sm' : compact ? 'text-sm' : 'text-base')}>
             {APP_NAME}
           </h1>
-          <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+          {!minimal && (
+            <p className="truncate text-[10px] text-muted-foreground">{subtitle}</p>
+          )}
         </div>
       </div>
       {status && (
-        <Badge variant={statusVariant} className="capitalize shadow-sm">
+        <Badge variant={badgeVariant} className="shrink-0 capitalize text-[10px] shadow-sm">
           {status}
         </Badge>
       )}

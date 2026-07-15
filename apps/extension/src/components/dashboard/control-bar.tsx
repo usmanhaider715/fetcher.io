@@ -1,6 +1,7 @@
 import type { SessionStatus } from '@fetcher/shared';
 import { Pause, Play, RotateCcw, Settings, Square, PanelRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 interface ControlBarProps {
   sessionStatus: SessionStatus;
@@ -12,6 +13,7 @@ interface ControlBarProps {
   onSettings: () => void;
   onOpenSidePanel: () => void;
   isLoading?: boolean;
+  compact?: boolean;
 }
 
 export function ControlBar({
@@ -24,18 +26,19 @@ export function ControlBar({
   onSettings,
   onOpenSidePanel,
   isLoading = false,
+  compact = false,
 }: ControlBarProps) {
   const isRunning = sessionStatus === 'running';
   const isPaused = sessionStatus === 'paused';
   const isActive = isRunning || isPaused;
 
   return (
-    <div className="space-y-3">
+    <div className={cn(compact ? 'space-y-2' : 'space-y-3')}>
       <div className="grid grid-cols-2 gap-2">
         {!isActive && (
           <Button onClick={onStart} disabled={isLoading} className="col-span-2" size="sm">
             <Play className="h-4 w-4" />
-            Start Scraping
+            {compact ? 'Start' : 'Start Scraping'}
           </Button>
         )}
 
@@ -68,7 +71,7 @@ export function ControlBar({
           disabled={isLoading}
         >
           <RotateCcw className="h-4 w-4" />
-          New Session
+          {compact ? 'New' : 'New Session'}
         </Button>
       </div>
 
@@ -79,7 +82,7 @@ export function ControlBar({
         </Button>
         <Button onClick={onOpenSidePanel} variant="outline" size="sm">
           <PanelRight className="h-4 w-4" />
-          Side Panel
+          {compact ? 'Panel' : 'Side Panel'}
         </Button>
       </div>
     </div>
