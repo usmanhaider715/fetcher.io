@@ -124,6 +124,7 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
+  subcategories?: Subcategory[];
   createdAt: string;
   updatedAt: string;
 }
@@ -277,6 +278,16 @@ export interface DashboardStats {
   crawlMethod?: string;
   errors: number;
   sessionStatus: SessionStatus;
+  authRequired?: boolean;
+}
+
+export interface CloudAccount {
+  signedIn: boolean;
+  userId?: string;
+  email?: string;
+  plan?: string;
+  organizationId?: string;
+  organizationName?: string;
 }
 
 export type MessageType =
@@ -298,6 +309,18 @@ export type MessageType =
   | 'DETECT_PLATFORM'
   | 'PLATFORM_DETECTED'
   | 'CONTENT_SCRIPT_READY'
+  | 'GET_CLOUD_ACCOUNT'
+  | 'CLOUD_ACCOUNT'
+  | 'SET_ACCESS_TOKEN'
+  | 'DISCONNECT_CLOUD'
+  | 'GET_CATEGORIES'
+  | 'CREATE_CATEGORY'
+  | 'CREATE_SUBCATEGORY'
+  | 'GET_PROJECTS'
+  | 'ENSURE_DEFAULT_PROJECT'
+  | 'GET_BACKEND_STATUS'
+  | 'EXPORT_AND_DOWNLOAD'
+  | 'PURGE_SESSION'
   | 'PING';
 
 export interface ExtensionMessage<T = unknown> {
@@ -317,6 +340,7 @@ export interface StartScrapePayload {
   urls?: string[];
   categoryId?: string;
   subcategoryId?: string;
+  projectId?: string;
   sortFilter?: ProductSortFilter;
   maxPages?: number;
   minRating?: number;

@@ -6,9 +6,11 @@ import {
   APP_NAME,
   DEFAULT_CLOUD_API_URL,
   DEFAULT_SETTINGS,
+  DEFAULT_WEB_APP_URL,
   PRODUCT_ID_FORMATS,
   THEME_MODES,
   type AppSettings,
+  type CloudAccount,
 } from '@fetcher/shared';
 import {
   Brain,
@@ -36,7 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'ai', label: 'AI Enrichment', icon: Brain },
   { id: 'connectors', label: 'Connectors', icon: Store },
   { id: 'products', label: 'Products & Images', icon: Image },
-  { id: 'cloud', label: 'Cloud Sync', icon: Cloud },
+  { id: 'cloud', label: 'Account', icon: Cloud },
 ];
 
 const settingsSchema = z.object({
@@ -175,6 +177,7 @@ function SettingsField({
 
 function OptionsPage() {
   const [activeNav, setActiveNav] = useState('general');
+  const [account, setAccount] = useState<CloudAccount | null>(null);
   const {
     register,
     handleSubmit,
@@ -189,15 +192,26 @@ function OptionsPage() {
     sendMessage<undefined, AppSettings>({ type: 'GET_SETTINGS' }).then((settings) => {
       reset(settingsToForm(settings));
     });
+    sendMessage<undefined, CloudAccount>({ type: 'GET_CLOUD_ACCOUNT' }).then(setAccount);
   }, [reset]);
+
+  const refreshAccount = useCallback(() => {
+    sendMessage<undefined, CloudAccount>({ type: 'GET_CLOUD_ACCOUNT' }).then(setAccount);
+  }, []);
+
+  const handleDisconnect = useCallback(async () => {
+    await sendMessage({ type: 'DISCONNECT_CLOUD' });
+    refreshAccount();
+  }, [refreshAccount]);
 
   const onSubmit = useCallback(
     async (data: SettingsFormData) => {
       const payload = formToSettings(data);
       await sendMessage({ type: 'UPDATE_SETTINGS', payload });
       reset(data);
+      refreshAccount();
     },
-    [reset],
+    [reset, refreshAccount],
   );
 
   const handleReset = useCallback(() => {
@@ -212,7 +226,7 @@ function OptionsPage() {
       <Card className="gradient-border">
         <CardHeader>
           <CardTitle>General</CardTitle>
-          <CardDescription>Appearance and connection settings</CardDescription>
+          <CardDescription>Appearance and local data service</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <SettingsField label="Theme">
@@ -222,9 +236,17 @@ function OptionsPage() {
               ))}
             </select>
           </SettingsField>
-          <SettingsField label="Backend URL" description="Local scrape API (default :3847)">
-            <input {...register('backendUrl')} type="url" className={inputClass} />
-          </SettingsField>
+          <div className="rounded-xl border border-border/60 bg-secondary/30 p-4 text-sm">
+            <p className="font-semibold">Local data service</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Scraped images and files are stored on <strong>your computer</strong> while a run is active (port 3847).
+              After you download, use &quot;Free local data&quot; to remove them. Run summaries sync to your cloud dashboard.
+            </p>
+            <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+              Start: pnpm dev:backend
+            </p>
+          </div>
+          <input type="hidden" {...register('backendUrl')} />
           <SettingsField label="Products Folder">
             <input {...register('productsFolder')} type="text" className={inputClass} />
           </SettingsField>
@@ -350,19 +372,57 @@ function OptionsPage() {
     cloud: (
       <Card className="gradient-border">
         <CardHeader>
-          <CardTitle>Cloud Sync</CardTitle>
-          <CardDescription>Connect to Fetcher.io cloud for billing, AI, and sync</CardDescription>
+          <CardTitle>Fetcher.io Account</CardTitle>
+          <CardDescription>
+            Link your web account to unlock scraping, plan limits, AI, and job sync. No separate license key needed when signed in.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <SettingsField label="Cloud API URL" description="Production: https://api.productfetcher.online">
-            <input {...register('cloudApiUrl')} type="url" placeholder={DEFAULT_CLOUD_API_URL} className={inputClass} />
-          </SettingsField>
-          <SettingsField label="License Key" description="From dashboard after signup">
-            <input {...register('licenseKey')} type="text" className={inputClass} />
-          </SettingsField>
-          <SettingsField label="Cloud Access Token" description="Optional — from web login">
-            <input {...register('cloudAccessToken')} type="password" className={inputClass} />
-          </SettingsField>
+          {account?.signedIn ? (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
+              <p className="text-sm font-semibold">{account.email}</p>
+              <p className="text-xs text-muted-foreground">
+                User ID: <code className="font-mono">{account.userId}</code>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Plan: <strong className="capitalize">{account.plan}</strong>
+                {account.organizationName ? ` · ${account.organizationName}` : ''}
+              </p>
+              <div className="flex gap-2 pt-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => chrome.tabs.create({ url: DEFAULT_WEB_APP_URL })}>
+                  Open dashboard
+                </Button>
+                <Button type="button" size="sm" variant="destructive" onClick={handleDisconnect}>
+                  Disconnect
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/60 p-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Sign in with your Fetcher.io account. Choose a plan on the website (free plan works without payment).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => chrome.tabs.create({ url: `${DEFAULT_WEB_APP_URL}/login?next=/dashboard/extension` })}
+                >
+                  Sign in
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => chrome.tabs.create({ url: `${DEFAULT_WEB_APP_URL}/register` })}
+                >
+                  Create account
+                </Button>
+              </div>
+            </div>
+          )}
+          <input type="hidden" {...register('cloudApiUrl')} />
+          <input type="hidden" {...register('cloudAccessToken')} />
         </CardContent>
       </Card>
     ),

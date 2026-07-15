@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { basename, join } from 'node:path';
+import { access } from 'node:fs/promises';
 import type { Product } from '@fetcher/shared';
 import { asyncHandler, validateBody } from '../middleware/validate.js';
 import { scrapeService, sessionService } from '../services/scrape.service.js';
@@ -142,6 +144,14 @@ scrapeRouter.post(
   }),
 );
 
+scrapeRouter.delete(
+  '/session/:sessionId/purge',
+  asyncHandler(async (req, res) => {
+    const result = await sessionService.purge(paramId(req.params['sessionId']));
+    res.json({ success: true, ...result });
+  }),
+);
+
 const exportSchema = z.object({
   format: z.enum(['txt', 'json', 'csv', 'excel', 'zip']),
   sessionId: z.string().optional(),
@@ -159,6 +169,17 @@ exportRouter.post(
       req.body.sessionId,
       req.body.productIds,
     );
-    res.json({ success: true, ...result });
+    const filename = basename(result.path);
+    res.json({ success: true, ...result, filename, downloadUrl: `/export/download/${encodeURIComponent(filename)}` });
+  }),
+);
+
+exportRouter.get(
+  '/download/:filename',
+  asyncHandler(async (req, res) => {
+    const filename = basename(paramId(req.params['filename']));
+    const filePath = await exportService.resolveExportPath(filename);
+    await access(filePath);
+    res.download(filePath, filename);
   }),
 );

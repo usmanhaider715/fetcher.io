@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Download, FileJson, FileSpreadsheet, FileText, Archive } from 'lucide-react';
+import { Download, FileJson, FileSpreadsheet, FileText, Archive, Trash2 } from 'lucide-react';
 import type { ExportFormat } from '@fetcher/shared';
-import { backendApi } from '@/lib/backend-api';
+import { sendMessage } from '@/lib/messaging';
+import { useBackendReady } from '@/hooks/use-backend';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDashboardStore } from '@/stores/dashboard-store';
@@ -16,19 +17,51 @@ const formats: Array<{ value: ExportFormat; label: string; icon: React.ReactNode
 
 export function ExportPanel() {
   const sessionId = useDashboardStore((s) => s.stats.sessionId);
+  const productsSaved = useDashboardStore((s) => s.stats.productsSaved);
+  const { ready: backendReady } = useBackendReady();
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const [lastExport, setLastExport] = useState<string | null>(null);
+  const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
+  const [purging, setPurging] = useState(false);
 
   const handleExport = async (format: ExportFormat) => {
     setExporting(format);
+    setLastExport(null);
     try {
-      const result = await backendApi.export(format, sessionId);
-      const scope = sessionId ? 'current session' : 'all products';
-      setLastExport(`${result.count} products (${scope}) → ${result.path.split('/').pop()}`);
-    } catch {
-      setLastExport('Export failed — is backend running?');
+      const result = await sendMessage<
+        { format: ExportFormat; sessionId?: string },
+        { success?: boolean; count?: number; filename?: string; error?: string }
+      >({
+        type: 'EXPORT_AND_DOWNLOAD',
+        payload: { format, sessionId },
+      });
+
+      if (result.error) {
+        setLastExport(result.error);
+        return;
+      }
+
+      setLastExport(
+        `Downloaded ${result.count ?? 0} products as ${result.filename ?? format}. Save the file to your computer.`,
+      );
+      setShowPurgeConfirm(true);
+    } catch (error) {
+      setLastExport(error instanceof Error ? error.message : 'Export failed');
     } finally {
       setExporting(null);
+    }
+  };
+
+  const handlePurge = async () => {
+    setPurging(true);
+    try {
+      await sendMessage({ type: 'PURGE_SESSION' });
+      setLastExport('Local scrape data removed. Run summary remains on your dashboard.');
+      setShowPurgeConfirm(false);
+    } catch (error) {
+      setLastExport(error instanceof Error ? error.message : 'Cleanup failed');
+    } finally {
+      setPurging(false);
     }
   };
 
@@ -37,13 +70,23 @@ export function ExportPanel() {
       <CardHeader className="p-4 pb-2">
         <CardTitle className="flex items-center gap-2 text-sm">
           <Download className="h-4 w-4" />
-          Export
+          Download run data
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-4 pt-0">
-        <p className="mb-2 text-[10px] text-muted-foreground">
-          {sessionId ? 'Exporting current session only' : 'No active session — exports all products'}
+      <CardContent className="space-y-3 p-4 pt-0">
+        {!backendReady && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-800">
+            Data service offline. On your computer run: <code className="font-mono">pnpm dev:backend</code>
+            {' '}then reload the extension. Scraped files are stored locally until you download.
+          </p>
+        )}
+
+        <p className="text-[10px] text-muted-foreground">
+          {sessionId
+            ? `${productsSaved} products in current run — export then free local storage`
+            : 'Start a scrape session to export products'}
         </p>
+
         <div className="grid grid-cols-3 gap-1.5">
           {formats.map((f) => (
             <Button
@@ -51,7 +94,7 @@ export function ExportPanel() {
               variant="outline"
               size="sm"
               className="h-8 text-xs"
-              disabled={exporting !== null}
+              disabled={!sessionId || exporting !== null || !backendReady}
               onClick={() => handleExport(f.value)}
             >
               {f.icon}
@@ -59,8 +102,37 @@ export function ExportPanel() {
             </Button>
           ))}
         </div>
+
         {lastExport && (
-          <p className="mt-2 text-center text-[10px] text-muted-foreground">{lastExport}</p>
+          <p className="text-center text-[10px] text-muted-foreground">{lastExport}</p>
+        )}
+
+        {showPurgeConfirm && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+            <p className="text-[10px] font-medium text-destructive">
+              Download complete. Remove local images and product files from this run? Your dashboard keeps the run summary only.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                className="flex-1 text-xs"
+                disabled={purging}
+                onClick={handlePurge}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {purging ? 'Removing…' : 'Free local data'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs"
+                onClick={() => setShowPurgeConfirm(false)}
+              >
+                Keep files
+              </Button>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

@@ -22,3 +22,12 @@ export function applyPlanLimits(plan: PlanId) {
 export function getPlanLimits(plan: PlanId) {
   return PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 }
+
+export function getPlanFeatures(plan: PlanId): string[] {
+  const limits = getPlanLimits(plan);
+  const features = ['scraping', 'export'];
+  if (limits.aiCalls > 0) features.push('ai');
+  if (limits.connectors > 0) features.push('connectors');
+  if (plan !== 'free') features.push('api', 'cloud_sync');
+  return features;
+}

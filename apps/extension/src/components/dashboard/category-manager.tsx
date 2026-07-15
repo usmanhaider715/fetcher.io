@@ -1,7 +1,8 @@
-import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { FolderPlus, Plus } from 'lucide-react';
-import { backendApi } from '@/lib/backend-api';
+import type { Category } from '@fetcher/shared';
+import { sendMessage } from '@/lib/messaging';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +11,10 @@ interface CategoryManagerProps {
   selectedCategoryId?: string | null;
   selectedSubcategoryId?: string | null;
   onSelectionChange?: (categoryId: string | null, subcategoryId: string | null) => void;
+}
+
+async function fetchCategories(): Promise<Category[]> {
+  return sendMessage<undefined, Category[]>({ type: 'GET_CATEGORIES' });
 }
 
 export function CategoryManager({
@@ -21,28 +26,33 @@ export function CategoryManager({
   const [newCategory, setNewCategory] = useState('');
   const [newSubcategory, setNewSubcategory] = useState('');
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => backendApi.getCategories(),
-    retry: false,
+    queryFn: fetchCategories,
   });
 
   const createCategory = useMutation({
-    mutationFn: (name: string) => backendApi.createCategory(name),
+    mutationFn: (name: string) =>
+      sendMessage<{ name: string }, Category>({ type: 'CREATE_CATEGORY', payload: { name } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setNewCategory('');
+      setError(null);
     },
+    onError: (err: Error) => setError(err.message),
   });
 
   const createSubcategory = useMutation({
     mutationFn: ({ categoryId, name }: { categoryId: string; name: string }) =>
-      backendApi.createSubcategory(categoryId, name),
+      sendMessage({ type: 'CREATE_SUBCATEGORY', payload: { categoryId, name } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setNewSubcategory('');
+      setError(null);
     },
+    onError: (err: Error) => setError(err.message),
   });
 
   const selectCategory = (catId: string) => {
@@ -83,14 +93,19 @@ export function CategoryManager({
           <input
             value={newCategory}
             onChange={(e) => setNewCategory(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newCategory.trim()) {
+                createCategory.mutate(newCategory.trim());
+              }
+            }}
             placeholder="New category..."
             className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs"
           />
           <Button
             size="sm"
             variant="outline"
-            disabled={!newCategory || createCategory.isPending}
-            onClick={() => createCategory.mutate(newCategory)}
+            disabled={!newCategory.trim() || createCategory.isPending}
+            onClick={() => createCategory.mutate(newCategory.trim())}
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -129,6 +144,11 @@ export function CategoryManager({
                     <input
                       value={newSubcategory}
                       onChange={(e) => setNewSubcategory(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newSubcategory.trim()) {
+                          createSubcategory.mutate({ categoryId: cat.id, name: newSubcategory.trim() });
+                        }
+                      }}
                       placeholder="Subcategory..."
                       className="h-7 flex-1 rounded border border-input bg-background px-2 text-[10px]"
                     />
@@ -136,9 +156,9 @@ export function CategoryManager({
                       size="sm"
                       variant="ghost"
                       className="h-7 px-2"
-                      disabled={!newSubcategory}
+                      disabled={!newSubcategory.trim() || createSubcategory.isPending}
                       onClick={() =>
-                        createSubcategory.mutate({ categoryId: cat.id, name: newSubcategory })
+                        createSubcategory.mutate({ categoryId: cat.id, name: newSubcategory.trim() })
                       }
                     >
                       <Plus className="h-3 w-3" />
@@ -149,9 +169,13 @@ export function CategoryManager({
             </div>
           ))}
           {categories.length === 0 && (
-            <p className="text-center text-xs text-muted-foreground">No categories yet</p>
+            <p className="text-center text-xs text-muted-foreground">
+              No categories yet — type a name and press +
+            </p>
           )}
         </div>
+
+        {error && <p className="text-center text-[10px] text-destructive">{error}</p>}
       </CardContent>
     </Card>
   );

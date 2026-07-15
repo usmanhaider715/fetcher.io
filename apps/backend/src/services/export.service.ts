@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import * as XLSX from 'xlsx';
 import type { ExportFormat } from '@fetcher/shared';
@@ -18,6 +18,11 @@ function parseJsonField<T>(value: string | null): T | undefined {
 
 export class ExportService {
   private exportDir = join(config.productsDir, '..', 'exports');
+
+  resolveExportPath(filename: string): string {
+    const safe = basename(filename);
+    return join(this.exportDir, safe);
+  }
 
   async exportProducts(
     format: ExportFormat,

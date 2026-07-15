@@ -1,10 +1,12 @@
 import type { SessionStatus } from '@fetcher/shared';
-import { Pause, Play, RotateCcw, Settings, Square, PanelRight } from 'lucide-react';
+import { DEFAULT_WEB_APP_URL } from '@fetcher/shared';
+import { LogIn, Pause, Play, RotateCcw, Settings, Square, PanelRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface ControlBarProps {
   sessionStatus: SessionStatus;
+  signedIn?: boolean;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -18,6 +20,7 @@ interface ControlBarProps {
 
 export function ControlBar({
   sessionStatus,
+  signedIn = true,
   onStart,
   onPause,
   onResume,
@@ -32,10 +35,21 @@ export function ControlBar({
   const isPaused = sessionStatus === 'paused';
   const isActive = isRunning || isPaused;
 
+  const openSignIn = () => {
+    chrome.tabs.create({ url: `${DEFAULT_WEB_APP_URL}/login?next=/dashboard/extension` });
+  };
+
   return (
     <div className={cn(compact ? 'space-y-2' : 'space-y-3')}>
       <div className="grid grid-cols-2 gap-2">
-        {!isActive && (
+        {!isActive && !signedIn && (
+          <Button onClick={openSignIn} className="col-span-2" size="sm" variant="secondary">
+            <LogIn className="h-4 w-4" />
+            Sign in to start
+          </Button>
+        )}
+
+        {!isActive && signedIn && (
           <Button onClick={onStart} disabled={isLoading} className="col-span-2" size="sm">
             <Play className="h-4 w-4" />
             {compact ? 'Start' : 'Start Scraping'}

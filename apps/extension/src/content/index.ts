@@ -6,6 +6,7 @@ import { SelectorRecorder } from './selector-recorder';
 import { DomInspector } from './dom-inspector';
 import { scrapeCurrentPage } from './scrape-page';
 import { initInvalidationWatcher } from './invalidation-banner';
+import { initAuthBridge } from './auth-bridge';
 import { loadDomainSelectors } from '../lib/domain-selectors';
 
 const recorder = new SelectorRecorder();
@@ -16,6 +17,7 @@ function notifyBackground(type: string, payload?: unknown): void {
 }
 
 function init(): void {
+  initAuthBridge();
   initInvalidationWatcher();
   void loadDomainSelectors(window.location.href);
   const adapter = adapterRegistry.detect(document, window.location.href);

@@ -5,6 +5,7 @@ import {
   type DashboardStats,
   type ExtensionMessage,
   type LogEntry,
+  type CloudAccount,
   type ProductSortFilter,
   type ScrapingMode,
   type SelectorMap,
@@ -22,11 +23,13 @@ import {
 import { AppProviders } from '@/components/app-providers';
 import { DashboardStatsGrid } from '@/components/dashboard/stats-grid';
 import { CategoryManager } from '@/components/dashboard/category-manager';
+import { ProjectSelector } from '@/components/dashboard/project-selector';
 import { ConnectorsPanel } from '@/components/dashboard/connectors-panel';
 import { ExportPanel } from '@/components/dashboard/export-panel';
 import { FilterPanel, type ScrapeFilters } from '@/components/dashboard/filter-panel';
 import { UrlImportPanel } from '@/components/dashboard/url-import-panel';
 import { LogsPanel } from '@/components/dashboard/logs-panel';
+import { AccountBanner } from '@/components/dashboard/account-banner';
 import { ControlBar } from '@/components/dashboard/control-bar';
 import { BrandHeader } from '@/components/layout/brand-header';
 import { PremiumBackground } from '@/components/layout/premium-background';
@@ -52,6 +55,10 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
   return sendMessage<undefined, DashboardStats>({ type: 'GET_DASHBOARD_STATS' });
 }
 
+async function fetchCloudAccount(): Promise<CloudAccount> {
+  return sendMessage<undefined, CloudAccount>({ type: 'GET_CLOUD_ACCOUNT' });
+}
+
 function SidePanel() {
   const queryClient = useQueryClient();
   const { stats, logs, isLoading, setStats, setSessionStatus, addLog, setLogs, setLoading } =
@@ -63,6 +70,7 @@ function SidePanel() {
   const [importUrls, setImportUrls] = useState<string[]>([]);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [subcategoryId, setSubcategoryId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [filters, setFilters] = useState<ScrapeFilters>({
     sortFilter: 'default',
     maxPages: 10,
@@ -73,6 +81,12 @@ function SidePanel() {
     processedCount: number;
     currentPage: number;
   } | null>(null);
+
+  const { data: account } = useQuery({
+    queryKey: ['cloud-account'],
+    queryFn: fetchCloudAccount,
+    refetchInterval: 60000,
+  });
 
   const { data, refetch } = useQuery({
     queryKey: ['dashboard-stats'],
@@ -109,6 +123,9 @@ function SidePanel() {
       if (message.type === 'SCRAPE_LOG' && message.payload) {
         addLog(message.payload as LogEntry);
       }
+      if (message.type === 'CLOUD_ACCOUNT' && message.payload) {
+        queryClient.setQueryData(['cloud-account'], message.payload);
+      }
     });
     return unsubscribe;
   }, [setStats, addLog, queryClient]);
@@ -121,6 +138,7 @@ function SidePanel() {
         urls?: string[];
         categoryId?: string;
         subcategoryId?: string;
+        projectId?: string;
         sortFilter: ProductSortFilter;
         maxPages?: number;
         minRating?: number;
@@ -132,6 +150,7 @@ function SidePanel() {
 
       if (categoryId) payload.categoryId = categoryId;
       if (subcategoryId) payload.subcategoryId = subcategoryId;
+      if (projectId) payload.projectId = projectId;
       if (selectedMode === 'import_csv' || selectedMode === 'selected_urls') {
         payload.urls = importUrls;
       }
@@ -152,7 +171,7 @@ function SidePanel() {
     } finally {
       setLoading(false);
     }
-  }, [selectedMode, filters, importUrls, categoryId, subcategoryId, setLoading, setSessionStatus, refetch]);
+  }, [selectedMode, filters, importUrls, categoryId, subcategoryId, projectId, setLoading, setSessionStatus, refetch]);
 
   const handlePause = useCallback(async () => {
     await sendMessage({ type: 'PAUSE_SCRAPE' });
@@ -310,6 +329,7 @@ function SidePanel() {
 
       <ControlBar
         sessionStatus={stats.sessionStatus}
+        signedIn={account?.signedIn ?? false}
         onStart={handleStart}
         onPause={handlePause}
         onResume={handleResume}
@@ -319,6 +339,8 @@ function SidePanel() {
         onOpenSidePanel={() => {}}
         isLoading={isLoading}
       />
+
+      <ProjectSelector value={projectId} onChange={setProjectId} />
 
       <CategoryManager
         selectedCategoryId={categoryId}
@@ -338,6 +360,9 @@ function SidePanel() {
       {/* Top bar — full width */}
       <header className="relative z-10 shrink-0 border-b border-border/50 glass px-3 py-2.5">
         <BrandHeader status={stats.sessionStatus} minimal />
+        <div className="mt-2">
+          <AccountBanner />
+        </div>
       </header>
 
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1">

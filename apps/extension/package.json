@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate:icons": "node scripts/generate-icons.mjs",
+    "generate:icons": "python3 ../../scripts/process-brand-logo.py",
     "dev": "pnpm generate:icons && vite",
     "build": "pnpm generate:icons && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",

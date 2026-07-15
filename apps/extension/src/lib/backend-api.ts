@@ -94,9 +94,25 @@ class BackendApi {
   }
 
   async export(format: ExportFormat, sessionId?: string) {
-    return this.request<{ path: string; count: number }>(API_ENDPOINTS.EXPORT, {
-      method: 'POST',
-      body: JSON.stringify({ format, sessionId }),
+    return this.request<{ path: string; count: number; filename?: string; downloadUrl?: string }>(
+      API_ENDPOINTS.EXPORT,
+      {
+        method: 'POST',
+        body: JSON.stringify({ format, sessionId }),
+      },
+    );
+  }
+
+  async downloadExport(downloadUrl: string, filename: string): Promise<Blob> {
+    const path = downloadUrl.startsWith('/') ? downloadUrl : `/${downloadUrl}`;
+    const res = await fetch(`${this.baseUrl}${path}`);
+    if (!res.ok) throw new Error(`Download failed: ${res.statusText}`);
+    return res.blob();
+  }
+
+  async purgeSession(sessionId: string) {
+    return this.request<{ deletedProducts: number }>(`/scrape/session/${sessionId}/purge`, {
+      method: 'DELETE',
     });
   }
 

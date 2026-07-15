@@ -23,7 +23,7 @@ export function SiteFooter() {
           <p className="mb-3 text-sm font-semibold text-foreground">Legal</p>
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li><Link href="/legal/terms" className="no-underline hover:text-primary">Terms of Service</Link></li>
-            <li><Link href="/legal/privacy" className="no-underline hover:text-primary">Privacy Policy</Link></li>
+            <li><Link href="/privacy" className="no-underline hover:text-primary">Privacy Policy</Link></li>
             <li><Link href="/legal/aup" className="no-underline hover:text-primary">Acceptable Use</Link></li>
           </ul>
         </div>

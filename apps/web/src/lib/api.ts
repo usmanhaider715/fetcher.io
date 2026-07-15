@@ -5,6 +5,14 @@ export interface AuthUser {
   email: string;
   name?: string | null;
   emailVerified?: boolean;
+  role?: string;
+}
+
+export interface AuthOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
 }
 
 export interface AuthTokens {
@@ -16,15 +24,23 @@ let accessToken: string | null = null;
 export function setAccessToken(token: string | null) {
   accessToken = token;
   if (typeof window !== 'undefined') {
-    if (token) sessionStorage.setItem('fetcher_access', token);
-    else sessionStorage.removeItem('fetcher_access');
+    if (token) {
+      sessionStorage.setItem('fetcher_access', token);
+      localStorage.setItem('fetcher_access', token);
+      window.dispatchEvent(new CustomEvent('fetcher-auth', { detail: { token } }));
+    } else {
+      sessionStorage.removeItem('fetcher_access');
+      localStorage.removeItem('fetcher_access');
+      window.dispatchEvent(new CustomEvent('fetcher-auth', { detail: { token: null } }));
+    }
   }
 }
 
 export function getAccessToken(): string | null {
   if (accessToken) return accessToken;
   if (typeof window !== 'undefined') {
-    accessToken = sessionStorage.getItem('fetcher_access');
+    accessToken =
+      sessionStorage.getItem('fetcher_access') ?? localStorage.getItem('fetcher_access');
   }
   return accessToken;
 }
@@ -71,7 +87,8 @@ export const api = {
 
   logout: () => apiFetch<{ success: boolean }>('/v1/auth/logout', { method: 'POST', body: '{}' }),
 
-  me: () => apiFetch<{ user: AuthUser }>('/v1/auth/me'),
+  me: () =>
+    apiFetch<{ user: AuthUser; organization: AuthOrganization | null }>('/v1/auth/me'),
 
   projects: () => apiFetch<{ projects: Array<{ _id: string; name: string; description?: string }> }>('/v1/projects'),
 
@@ -104,3 +121,15 @@ export const api = {
       body: JSON.stringify({ name, scopes }),
     }),
 };
+
+/** Restore session from httpOnly refresh cookie (api.productfetcher.online). */
+export async function restoreSession(): Promise<boolean> {
+  if (getAccessToken()) return true;
+  try {
+    const res = await api.refresh();
+    setAccessToken(res.accessToken);
+    return true;
+  } catch {
+    return false;
+  }
+}

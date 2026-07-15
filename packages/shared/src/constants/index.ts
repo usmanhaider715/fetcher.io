@@ -14,6 +14,7 @@ export const APP_DESCRIPTION =
 
 export const DEFAULT_BACKEND_URL = 'http://localhost:3847';
 export const DEFAULT_CLOUD_API_URL = 'https://api.productfetcher.online';
+export const DEFAULT_WEB_APP_URL = 'https://app.productfetcher.online';
 
 export const STORAGE_KEYS = {
   SETTINGS: 'fetcher_settings',

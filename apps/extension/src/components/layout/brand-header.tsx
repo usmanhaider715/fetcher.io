@@ -1,5 +1,4 @@
 import { APP_NAME } from '@fetcher/shared';
-import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
@@ -19,6 +18,8 @@ function statusVariantFromStatus(status: string): BrandHeaderProps['statusVarian
   return 'secondary';
 }
 
+const ICON_URL = chrome.runtime.getURL('public/icons/icon-48.png');
+
 export function BrandHeader({
   status,
   statusVariant,
@@ -28,18 +29,18 @@ export function BrandHeader({
   className,
 }: BrandHeaderProps) {
   const badgeVariant = statusVariant ?? (status ? statusVariantFromStatus(status) : 'secondary');
+  const iconSize = minimal || compact ? 32 : 40;
 
   return (
     <div className={cn('flex min-w-0 items-center justify-between gap-2', className)}>
       <div className="flex min-w-0 items-center gap-2">
-        <div
-          className={cn(
-            'icon-3d shrink-0 bg-gradient-to-br from-primary to-purple-500 text-white shadow-glow',
-            minimal ? 'h-8 w-8' : compact ? 'h-8 w-8' : 'h-10 w-10',
-          )}
-        >
-          <Sparkles className={cn(minimal || compact ? 'h-3.5 w-3.5' : 'h-5 w-5')} />
-        </div>
+        <img
+          src={ICON_URL}
+          alt=""
+          width={iconSize}
+          height={iconSize}
+          className="shrink-0"
+        />
         <div className="min-w-0">
           <h1 className={cn('truncate font-bold tracking-tight', minimal ? 'text-sm' : compact ? 'text-sm' : 'text-base')}>
             {APP_NAME}

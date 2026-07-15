@@ -1,7 +1,8 @@
 import { useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DashboardStats, ExtensionMessage, LogEntry } from '@fetcher/shared';
+import type { DashboardStats, ExtensionMessage, LogEntry, CloudAccount } from '@fetcher/shared';
 import { AppProviders } from '@/components/app-providers';
+import { AccountBanner } from '@/components/dashboard/account-banner';
 import { ControlBar } from '@/components/dashboard/control-bar';
 import { DashboardStatsGrid } from '@/components/dashboard/stats-grid';
 import { LogsPanel } from '@/components/dashboard/logs-panel';
@@ -23,10 +24,20 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
   return 'secondary';
 }
 
+async function fetchCloudAccount(): Promise<CloudAccount> {
+  return sendMessage<undefined, CloudAccount>({ type: 'GET_CLOUD_ACCOUNT' });
+}
+
 function Dashboard() {
   const queryClient = useQueryClient();
   const { stats, logs, isLoading, setStats, setSessionStatus, addLog, setLogs, setLoading } =
     useDashboardStore();
+
+  const { data: account } = useQuery({
+    queryKey: ['cloud-account'],
+    queryFn: fetchCloudAccount,
+    refetchInterval: 60000,
+  });
 
   const { data, isFetching, refetch } = useQuery({
     queryKey: ['dashboard-stats'],
@@ -49,6 +60,9 @@ function Dashboard() {
       }
       if (message.type === 'SCRAPE_LOG' && message.payload) {
         addLog(message.payload as LogEntry);
+      }
+      if (message.type === 'CLOUD_ACCOUNT' && message.payload) {
+        queryClient.setQueryData(['cloud-account'], message.payload);
       }
     });
     return unsubscribe;
@@ -140,6 +154,8 @@ function Dashboard() {
           minimal
         />
 
+        <AccountBanner compact />
+
         {isActive && (
           <div className="glass-card space-y-1.5 p-2.5">
             <div className="flex justify-between text-[10px] font-medium">
@@ -157,6 +173,7 @@ function Dashboard() {
 
         <ControlBar
           sessionStatus={stats.sessionStatus}
+          signedIn={account?.signedIn ?? false}
           onStart={handleStart}
           onPause={handlePause}
           onResume={handleResume}

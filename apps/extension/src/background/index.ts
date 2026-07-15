@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  CloudAccount,
   DashboardStats,
   ExtensionMessage,
   LogEntry,
@@ -20,6 +21,7 @@ import { clearCheckpoint, loadCheckpoint } from './checkpoint';
 import { scrapeOrchestrator } from './scrape-orchestrator';
 import { urlQueueOrchestrator } from './url-queue-orchestrator';
 import { discoverProductUrls } from './site-crawler';
+import * as categoryStore from './category-store';
 
 class SessionManager {
   private session: ScrapeSession | null = null;
@@ -123,6 +125,7 @@ class SessionManager {
       metadata: {
         categoryId: payload.categoryId,
         subcategoryId: payload.subcategoryId,
+        projectId: payload.projectId,
         backendConnected: this.backendConnected,
         sortFilter: payload.sortFilter,
         maxPages: payload.maxPages,
@@ -362,6 +365,142 @@ class SettingsManager {
 const sessionManager = new SessionManager();
 const settingsManager = new SettingsManager();
 
+let cloudAccountCache: CloudAccount = { signedIn: false };
+
+async function fetchCloudAccount(): Promise<CloudAccount> {
+  const settings = settingsManager.get();
+  if (!settings.accessToken) {
+    cloudAccountCache = { signedIn: false };
+    return cloudAccountCache;
+  }
+
+  cloudApi.setBaseUrl(settings.cloudApiUrl ?? 'https://api.productfetcher.online');
+  cloudApi.setAccessToken(settings.accessToken);
+
+  try {
+    const me = await cloudApi.getMe();
+    cloudAccountCache = {
+      signedIn: true,
+      userId: me.user.id,
+      email: me.user.email,
+      plan: me.organization?.plan ?? 'free',
+      organizationId: me.organization?.id,
+      organizationName: me.organization?.name,
+    };
+    chrome.runtime.sendMessage({ type: 'CLOUD_ACCOUNT', payload: cloudAccountCache }).catch(() => {});
+    return cloudAccountCache;
+  } catch {
+    cloudAccountCache = { signedIn: false };
+    return cloudAccountCache;
+  }
+}
+
+async function setAccessToken(token: string): Promise<CloudAccount> {
+  await settingsManager.update({ accessToken: token });
+  sessionManager.addLog('info', 'Fetcher.io account linked');
+  const account = await fetchCloudAccount();
+  try {
+    cloudApi.setAccessToken(token);
+    await cloudApi.ensureDefaultProject();
+  } catch {
+    // project created on first scrape if needed
+  }
+  return account;
+}
+
+async function disconnectCloudAccount(): Promise<CloudAccount> {
+  await settingsManager.update({ accessToken: undefined });
+  cloudAccountCache = { signedIn: false };
+  sessionManager.addLog('info', 'Fetcher.io account disconnected');
+  chrome.runtime.sendMessage({ type: 'CLOUD_ACCOUNT', payload: cloudAccountCache }).catch(() => {});
+  return cloudAccountCache;
+}
+
+function isSignedIn(): boolean {
+  return Boolean(settingsManager.get().accessToken);
+}
+
+function statsWithAuth(tabUrl: string, platform: string | null, authRequired = false): DashboardStats {
+  return {
+    ...sessionManager.getDashboardStats(tabUrl, platform),
+    authRequired: authRequired || !isSignedIn(),
+  };
+}
+
+async function createCloudJobForSession(session: ScrapeSession, projectId?: string): Promise<void> {
+  const settings = settingsManager.get();
+  if (!settings.accessToken) return;
+
+  cloudApi.setAccessToken(settings.accessToken);
+  cloudApi.setBaseUrl(settings.cloudApiUrl ?? 'https://api.productfetcher.online');
+
+  try {
+    const pid = projectId ?? (await cloudApi.ensureDefaultProject());
+    const res = await cloudApi.logJob({
+      mode: session.mode,
+      websiteUrl: session.websiteUrl,
+      projectId: pid,
+      status: 'running',
+      productsFound: 0,
+      productsSaved: 0,
+      metadata: {
+        localSessionId: session.id,
+        platform: session.platform,
+        folderName: session.metadata?.['folderName'],
+        categoryId: session.metadata?.['categoryId'],
+        subcategoryId: session.metadata?.['subcategoryId'],
+      },
+    });
+
+    if (session.metadata) {
+      session.metadata['cloudJobId'] = res.job._id;
+      session.metadata['projectId'] = pid;
+    }
+    sessionManager.updateStats({ metadata: session.metadata });
+    sessionManager.addLog('info', `Run synced to dashboard (Project)`, session.id);
+  } catch (error) {
+    sessionManager.addLog(
+      'warning',
+      `Dashboard sync failed: ${error instanceof Error ? error.message : 'unknown'}`,
+      session.id,
+    );
+  }
+}
+
+async function finalizeCloudJob(session: ScrapeSession, status: 'completed' | 'failed' | 'interrupted'): Promise<void> {
+  const jobId = session.metadata?.['cloudJobId'] as string | undefined;
+  if (!jobId || !settingsManager.get().accessToken) return;
+
+  cloudApi.setAccessToken(settingsManager.get().accessToken!);
+  try {
+    await cloudApi.updateJob(jobId, {
+      status,
+      productsFound: session.productsFound,
+      productsSaved: session.productsSaved,
+      errors: session.errors,
+      durationMs: Date.now() - new Date(session.startedAt).getTime(),
+      metadata: {
+        localSessionId: session.id,
+        platform: session.platform,
+        folderName: session.metadata?.['folderName'],
+        projectId: session.metadata?.['projectId'],
+        exportedAt: status === 'completed' ? new Date().toISOString() : undefined,
+      },
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
+function notifyRunComplete(cloudStatus: 'completed' | 'failed' | 'interrupted' = 'completed'): void {
+  const session = sessionManager.getSession();
+  if (!session) return;
+  const localStatus: ScrapeSession['status'] =
+    cloudStatus === 'failed' ? 'error' : cloudStatus === 'interrupted' ? 'interrupted' : 'completed';
+  sessionManager.updateStats({ status: localStatus, completedAt: new Date().toISOString() });
+  void finalizeCloudJob(session, cloudStatus);
+}
+
 async function getActiveTabInfo(): Promise<{ url: string; title: string; tabId?: number }> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return { url: tab?.url ?? '', title: tab?.title ?? '', tabId: tab?.id };
@@ -406,7 +545,7 @@ async function runUrlQueue(
     (msg, level) => sessionManager.addLog(level, msg, session.id),
   );
   await clearCheckpoint();
-  sessionManager.updateStats({ status: 'completed' });
+  notifyRunComplete('completed');
 }
 
 async function resumeCheckpoint(
@@ -430,7 +569,7 @@ async function resumeCheckpoint(
       (msg, level) => sessionManager.addLog(level, msg, session.id),
     );
     await clearCheckpoint();
-    sessionManager.updateStats({ status: 'completed' });
+    notifyRunComplete('completed');
     return;
   }
 
@@ -521,7 +660,7 @@ async function handleMessage(
           // ignore progress poll errors
         }
       }
-      return sessionManager.getDashboardStats(tabInfo.url, platform);
+      return statsWithAuth(tabInfo.url, platform);
     }
 
     case 'GET_TAB_INFO':
@@ -531,7 +670,110 @@ async function handleMessage(
       return settingsManager.get();
 
     case 'UPDATE_SETTINGS': {
-      return settingsManager.update(message.payload as Partial<AppSettings>);
+      const updated = await settingsManager.update(message.payload as Partial<AppSettings>);
+      const payload = message.payload as Partial<AppSettings> | undefined;
+      if (payload && 'accessToken' in payload) {
+        void fetchCloudAccount();
+      }
+      return updated;
+    }
+
+    case 'GET_CLOUD_ACCOUNT':
+      return fetchCloudAccount();
+
+    case 'SET_ACCESS_TOKEN': {
+      const token = (message.payload as { accessToken?: string })?.accessToken;
+      if (!token) return { error: 'accessToken required' };
+      return setAccessToken(token);
+    }
+
+    case 'DISCONNECT_CLOUD':
+      return disconnectCloudAccount();
+
+    case 'GET_CATEGORIES':
+      return categoryStore.getCategories();
+
+    case 'CREATE_CATEGORY': {
+      const name = (message.payload as { name?: string })?.name;
+      if (!name) return { error: 'name required' };
+      return categoryStore.createCategory(name);
+    }
+
+    case 'CREATE_SUBCATEGORY': {
+      const { categoryId, name } = (message.payload as { categoryId?: string; name?: string }) ?? {};
+      if (!categoryId || !name) return { error: 'categoryId and name required' };
+      return categoryStore.createSubcategory(categoryId, name);
+    }
+
+    case 'GET_PROJECTS': {
+      if (!isSignedIn()) return { projects: [] };
+      cloudApi.setAccessToken(settingsManager.get().accessToken!);
+      try {
+        let { projects } = await cloudApi.getProjects();
+        if (projects.length === 0) {
+          await cloudApi.ensureDefaultProject();
+          ({ projects } = await cloudApi.getProjects());
+        }
+        return { projects };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to load projects', projects: [] };
+      }
+    }
+
+    case 'GET_BACKEND_STATUS': {
+      await backendApi.init();
+      return { connected: await backendApi.healthCheck() };
+    }
+
+    case 'EXPORT_AND_DOWNLOAD': {
+      const { format, sessionId } = (message.payload as { format?: string; sessionId?: string }) ?? {};
+      if (!format) return { error: 'format required' };
+      await backendApi.init();
+      if (!(await backendApi.healthCheck())) {
+        return { error: 'Data service offline. Run: pnpm dev:backend on your computer.' };
+      }
+      try {
+        const result = await backendApi.export(format as import('@fetcher/shared').ExportFormat, sessionId);
+        if (!result.downloadUrl || !result.filename) {
+          return { error: 'Export produced no file' };
+        }
+        const blob = await backendApi.downloadExport(result.downloadUrl, result.filename);
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const downloadId = await chrome.downloads.download({
+          url: dataUrl,
+          filename: `fetcher-io/${result.filename}`,
+          saveAs: true,
+        });
+        return { success: true, count: result.count, downloadId, filename: result.filename };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Export failed' };
+      }
+    }
+
+    case 'PURGE_SESSION': {
+      const session = sessionManager.getSession();
+      const sessionId = session?.id;
+      await backendApi.init();
+      if (sessionId && (await backendApi.healthCheck())) {
+        try {
+          await backendApi.purgeSession(sessionId);
+        } catch (error) {
+          sessionManager.addLog(
+            'warning',
+            `Purge partial: ${error instanceof Error ? error.message : 'unknown'}`,
+            sessionId,
+          );
+        }
+      }
+      scrapeOrchestrator.stop();
+      urlQueueOrchestrator.stop();
+      sessionManager.reset();
+      return { success: true, purged: true };
     }
 
     case 'GET_RESUMABLE_SESSION': {
@@ -553,6 +795,26 @@ async function handleMessage(
       const tabInfo = await getActiveTabInfo();
       const payload = message.payload as StartScrapePayload;
       const platform = await detectPlatformInActiveTab();
+
+      if (!isSignedIn()) {
+        sessionManager.addLog(
+          'error',
+          'Sign in required — open app.productfetcher.online/dashboard/extension to link your account',
+        );
+        return statsWithAuth(tabInfo.url, platform, true);
+      }
+
+      try {
+        const account = await fetchCloudAccount();
+        if (!account.signedIn) {
+          sessionManager.addLog('error', 'Session expired — sign in again at app.productfetcher.online');
+          return statsWithAuth(tabInfo.url, platform, true);
+        }
+        sessionManager.addLog('info', `Signed in as ${account.email} (${account.plan} plan)`);
+      } catch {
+        sessionManager.addLog('error', 'Could not verify account — check your connection');
+        return statsWithAuth(tabInfo.url, platform, true);
+      }
 
       if (payload.mode === 'resume_session') {
         const checkpoint = await loadCheckpoint();
@@ -581,6 +843,7 @@ async function handleMessage(
       }
 
       const session = await sessionManager.start(payload, tabInfo.url);
+      void createCloudJobForSession(session, payload.projectId);
 
       if (platform) {
         sessionManager.updateStats({ platform: platform as ScrapeSession['platform'] });
@@ -592,6 +855,7 @@ async function handleMessage(
         const msg = error instanceof Error ? error.message : 'Scrape failed to start';
         sessionManager.addLog('error', msg, session.id);
         sessionManager.updateStats({ status: 'error' });
+        void finalizeCloudJob(session, 'failed');
       }
 
       return sessionManager.getDashboardStats(tabInfo.url, platform);
@@ -694,7 +958,7 @@ async function handleMessage(
           (msg, level) => sessionManager.addLog(level, msg),
           async () => {
             await clearCheckpoint();
-            sessionManager.updateStats({ status: 'completed' });
+            notifyRunComplete('completed');
           },
         );
         return { ok: true };
@@ -737,6 +1001,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await sessionManager.load();
   await settingsManager.load();
   sessionManager.addLog('info', 'Fetcher.io extension installed');
+  void fetchCloudAccount();
 
   if (chrome.sidePanel) {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
@@ -746,6 +1011,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.runtime.onStartup.addListener(async () => {
   await sessionManager.load();
   await settingsManager.load();
+  void fetchCloudAccount();
   if (await backendApi.healthCheck()) {
     await backendApi.validateLicense();
   }
@@ -775,7 +1041,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  const extMessage = message as ExtensionMessage;
+  if (extMessage.type === 'SET_ACCESS_TOKEN') {
+    const token = (extMessage.payload as { accessToken?: string })?.accessToken;
+    if (!token) {
+      sendResponse({ error: 'accessToken required' });
+      return true;
+    }
+    setAccessToken(token)
+      .then(sendResponse)
+      .catch((error: Error) => sendResponse({ error: error.message }));
+    return true;
+  }
+  if (extMessage.type === 'GET_CLOUD_ACCOUNT') {
+    fetchCloudAccount()
+      .then(sendResponse)
+      .catch((error: Error) => sendResponse({ error: error.message }));
+    return true;
+  }
+  if (extMessage.type === 'PING') {
+    sendResponse({ ok: true, extension: 'fetcher.io' });
+    return true;
+  }
+  sendResponse({ error: 'Unknown message type' });
+  return true;
+});
+
 sessionManager.load();
-settingsManager.load();
+settingsManager.load().then(() => fetchCloudAccount());
 
 export { sessionManager, settingsManager };

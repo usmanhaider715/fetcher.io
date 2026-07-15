@@ -1,6 +1,8 @@
 import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
 import type { Product, ScrapeProgress, StartScrapePayload } from '@fetcher/shared';
 import { prisma } from '../lib/prisma.js';
+import { config } from '../config/index.js';
 import { logger } from './logger.service.js';
 import { settingsService } from './settings.service.js';
 import {
@@ -99,6 +101,39 @@ export class SessionService {
       currentUrl: session.currentUrl ?? undefined,
       percentComplete: percent,
     };
+  }
+
+  async purge(id: string): Promise<{ deletedProducts: number }> {
+    const session = await this.getById(id);
+    if (!session) throw new Error('Session not found');
+
+    const products = await prisma.product.findMany({
+      where: { sessionId: id },
+      select: { id: true, folderPath: true },
+    });
+
+    for (const product of products) {
+      if (product.folderPath) {
+        await fileService.removeProductFolder(product.folderPath).catch(() => {});
+      }
+    }
+
+    await prisma.product.deleteMany({ where: { sessionId: id } });
+    await prisma.session.delete({ where: { id } });
+
+    let meta: Record<string, unknown> = {};
+    try {
+      meta = session.metadata ? (JSON.parse(session.metadata) as Record<string, unknown>) : {};
+    } catch {
+      meta = {};
+    }
+    const folderName = meta['folderName'] as string | undefined;
+    if (folderName) {
+      await rm(join(config.productsDir, folderName), { recursive: true, force: true }).catch(() => {});
+    }
+
+    await logger.log('info', `Purged session ${id} (${products.length} products)`);
+    return { deletedProducts: products.length };
   }
 }
 

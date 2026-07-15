@@ -56,4 +56,13 @@ export default defineManifest({
       matches: ['<all_urls>'],
     },
   ],
+  externally_connectable: {
+    matches: [
+      'https://productfetcher.online/*',
+      'https://www.productfetcher.online/*',
+      'https://app.productfetcher.online/*',
+      'http://localhost:3000/*',
+      'http://127.0.0.1:3000/*',
+    ],
+  },
 });

@@ -16,6 +16,13 @@ export const metadata: Metadata = {
   description:
     'Local-first Chrome extension for e-commerce scraping, AI enrichment, and store publishing — with cloud auth, billing, and orchestration.',
   metadataBase: new URL(process.env.NEXT_PUBLIC_MARKETING_URL ?? 'https://productfetcher.online'),
+  icons: {
+    icon: [
+      { url: '/favicon.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon.ico', sizes: 'any' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

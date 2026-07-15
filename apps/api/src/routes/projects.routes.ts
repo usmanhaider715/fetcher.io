@@ -79,6 +79,35 @@ jobsRouter.post(
   }),
 );
 
+jobsRouter.patch(
+  '/:id',
+  requireAuth,
+  requireOrgMember,
+  validateBody(
+    z.object({
+      status: z.enum(['running', 'completed', 'failed', 'interrupted']).optional(),
+      productsFound: z.number().optional(),
+      productsSaved: z.number().optional(),
+      errors: z.number().optional(),
+      durationMs: z.number().optional(),
+      metadata: z.record(z.unknown()).optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const jobId = Array.isArray(req.params['id']) ? req.params['id'][0] : req.params['id'];
+    const job = await ScrapeJob.findOneAndUpdate(
+      { _id: jobId, organizationId: req.user!.organizationId },
+      { $set: req.body },
+      { new: true },
+    );
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    res.json({ success: true, job });
+  }),
+);
+
 export const apiKeysRouter = Router();
 
 apiKeysRouter.get(

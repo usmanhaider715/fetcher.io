@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import { api, setAccessToken } from '@/lib/api';
 import { BrandLogo } from '@/components/layout/brand-logo';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get('next') ?? '/dashboard';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -21,7 +23,9 @@ export default function LoginPage() {
     try {
       const res = await api.login(email, password);
       setAccessToken(res.accessToken);
-      router.push('/dashboard');
+      const dest = next.startsWith('/') ? next : '/dashboard';
+      router.push(dest);
+      // Content script on this page auto-links the extension within ~2s
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

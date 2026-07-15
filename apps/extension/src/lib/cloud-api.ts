@@ -1,5 +1,11 @@
 import { API_ENDPOINTS, DEFAULT_CLOUD_API_URL } from '@fetcher/shared';
 
+export interface CloudMeResponse {
+  success: boolean;
+  user: { id: string; email: string; name?: string | null };
+  organization: { id: string; name: string; plan: string; slug: string } | null;
+}
+
 export class CloudApiClient {
   private baseUrl = DEFAULT_CLOUD_API_URL;
   private accessToken: string | null = null;
@@ -29,9 +35,18 @@ export class CloudApiClient {
 
   async validateLicense(key?: string) {
     const qs = key ? `?key=${encodeURIComponent(key)}` : '';
-    return this.request<{ valid: boolean; plan: string; features: string[] }>(
-      `${API_ENDPOINTS.CLOUD_AUTH}/license/validate${qs}`,
-    );
+    return this.request<{
+      valid: boolean;
+      plan: string;
+      features: string[];
+      userId?: string;
+      organizationId?: string;
+      error?: string;
+    }>(`${API_ENDPOINTS.CLOUD_AUTH}/license/validate${qs}`);
+  }
+
+  async getMe() {
+    return this.request<CloudMeResponse>(`${API_ENDPOINTS.CLOUD_AUTH}/me`);
   }
 
   async generateAi(task: string, product: { title?: string; description?: string; brand?: string; price?: number }) {
@@ -49,10 +64,38 @@ export class CloudApiClient {
   }
 
   async logJob(metadata: Record<string, unknown>) {
-    return this.request<{ success: boolean }>('/v1/jobs', {
+    return this.request<{ success: boolean; job: { _id: string } }>('/v1/jobs', {
       method: 'POST',
       body: JSON.stringify(metadata),
     });
+  }
+
+  async updateJob(jobId: string, metadata: Record<string, unknown>) {
+    return this.request<{ success: boolean; job: { _id: string } }>(`/v1/jobs/${jobId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(metadata),
+    });
+  }
+
+  async getProjects() {
+    return this.request<{ projects: Array<{ _id: string; name: string; description?: string }> }>(
+      '/v1/projects',
+    );
+  }
+
+  async createProject(name: string, description?: string) {
+    return this.request<{ project: { _id: string; name: string } }>('/v1/projects', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    });
+  }
+
+  async ensureDefaultProject(): Promise<string> {
+    const { projects } = await this.getProjects();
+    const first = projects[0];
+    if (first) return first._id;
+    const { project } = await this.createProject('Project 1', 'Auto-created workspace');
+    return project._id;
   }
 }
 

@@ -13,6 +13,7 @@ data/
 apps/backend/data/
 apps/backend/prisma/data/
 apps/extension/dist/
+apps/extension/fetcher-io-extension.zip
 apps/web/.next/
 apps/api/dist/
 apps/backend/dist/

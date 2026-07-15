@@ -9,6 +9,7 @@ import {
   History,
   Key,
   Plug,
+  Puzzle,
   Settings,
   Users,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ const links = [
   { href: '/dashboard/history', label: 'History', icon: History },
   { href: '/dashboard/downloads', label: 'Downloads', icon: Download },
   { href: '/dashboard/connectors', label: 'Connectors', icon: Plug },
+  { href: '/dashboard/extension', label: 'Extension', icon: Puzzle },
   { href: '/dashboard/api-keys', label: 'API Keys', icon: Key },
   { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/team', label: 'Team', icon: Users },
