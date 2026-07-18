@@ -1,7 +1,7 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 
 const APP_NAME = 'Fetcher.io';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const APP_DESCRIPTION =
   'Professional e-commerce scraping platform with local storage and image management';
 

@@ -5,6 +5,7 @@ import { adapterRegistry } from '../adapters/registry';
 import { SelectorRecorder } from './selector-recorder';
 import { DomInspector } from './dom-inspector';
 import { scrapeCurrentPage } from './scrape-page';
+import { performSiteSearch } from './site-search';
 import { initInvalidationWatcher } from './invalidation-banner';
 import { initAuthBridge } from './auth-bridge';
 import { loadDomainSelectors } from '../lib/domain-selectors';
@@ -33,6 +34,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case 'PING':
       sendResponse({ ok: true, url: window.location.href });
       return true;
+
+    case 'PERFORM_SITE_SEARCH': {
+      const query = (message.payload as { query?: string })?.query ?? '';
+      void performSiteSearch(query).then(sendResponse);
+      return true;
+    }
 
     case 'START_SELECTOR_RECORDING':
       recorder.start();

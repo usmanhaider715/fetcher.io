@@ -70,10 +70,13 @@ function SidePanel() {
   const [importUrls, setImportUrls] = useState<string[]>([]);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [subcategoryId, setSubcategoryId] = useState<string | null>(null);
+  const [categoryName, setCategoryName] = useState<string | null>(null);
+  const [subcategoryName, setSubcategoryName] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [filters, setFilters] = useState<ScrapeFilters>({
     sortFilter: 'default',
     maxPages: 10,
+    maxProducts: 20,
     minRating: 0,
     minReviews: 0,
   });
@@ -133,26 +136,81 @@ function SidePanel() {
   const handleStart = useCallback(async () => {
     setLoading(true);
     try {
+      const categories = await sendMessage<undefined, Array<{
+        id: string;
+        name: string;
+        subcategories?: Array<{ id: string; name: string }>;
+      }>>({ type: 'GET_CATEGORIES' });
+
+      const selectedCategory =
+        (Array.isArray(categories) ? categories.find((c) => c.id === categoryId) : undefined) ??
+        (categoryName ? { id: categoryId ?? '', name: categoryName, subcategories: [] } : undefined);
+      const selectedSub =
+        selectedCategory && 'subcategories' in selectedCategory
+          ? selectedCategory.subcategories?.find((s) => s.id === subcategoryId)
+          : undefined;
+      const resolvedCategoryName = selectedCategory?.name ?? categoryName ?? undefined;
+      const resolvedSubName = selectedSub?.name ?? subcategoryName ?? undefined;
+
+      if (
+        (selectedMode === 'current_collection' || selectedMode === 'entire_website') &&
+        !resolvedCategoryName &&
+        !resolvedSubName
+      ) {
+        addLog({
+          id: String(Date.now()),
+          level: 'error',
+          message:
+            'Select a category or subcategory first — the extension searches for that name before scraping.',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (
+        resolvedCategoryName &&
+        !resolvedSubName &&
+        Array.isArray(categories) &&
+        (categories.find((c) => c.id === categoryId)?.subcategories?.length ?? 0) > 0
+      ) {
+        addLog({
+          id: String(Date.now()),
+          level: 'error',
+          message: `Click the subcategory under "${resolvedCategoryName}" (e.g. Artificial Plants) — parent category alone is too broad.`,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
       const payload: {
         mode: ScrapingMode;
         urls?: string[];
         categoryId?: string;
         subcategoryId?: string;
+        categoryName?: string;
+        subcategoryName?: string;
         projectId?: string;
         sortFilter: ProductSortFilter;
         maxPages?: number;
+        maxProducts?: number;
         minRating?: number;
         minReviews?: number;
         respectRobots?: boolean;
         maxCrawlPages?: number;
         productConcurrency?: number;
-      } = { mode: selectedMode, sortFilter: filters.sortFilter };
+      } = {
+        mode: selectedMode,
+        sortFilter: filters.sortFilter,
+        maxProducts: filters.maxProducts,
+      };
 
       if (categoryId) payload.categoryId = categoryId;
       if (subcategoryId) payload.subcategoryId = subcategoryId;
+      if (resolvedCategoryName) payload.categoryName = resolvedCategoryName;
+      if (resolvedSubName) payload.subcategoryName = resolvedSubName;
       if (projectId) payload.projectId = projectId;
       if (selectedMode === 'import_csv' || selectedMode === 'selected_urls') {
-        payload.urls = importUrls;
+        payload.urls = importUrls.slice(0, filters.maxProducts);
       }
       if (selectedMode === 'entire_website' || selectedMode === 'current_collection') {
         payload.maxPages = filters.maxPages;
@@ -165,13 +223,45 @@ function SidePanel() {
         payload.productConcurrency = 2;
       }
 
-      await sendMessage({ type: 'START_SCRAPE', payload });
-      setSessionStatus('running');
+      addLog({
+        id: String(Date.now()),
+        level: 'info',
+        message: `Will search for: "${resolvedSubName ?? resolvedCategoryName ?? 'current page'}" then scrape top ${filters.maxProducts}`,
+        timestamp: new Date().toISOString(),
+      });
+
+      const result = await sendMessage({
+        type: 'START_SCRAPE',
+        payload,
+      }) as { error?: string; sessionStatus?: string };
+      if (result && 'error' in result && result.error) {
+        addLog({
+          id: String(Date.now()),
+          level: 'error',
+          message: String(result.error),
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        setSessionStatus('running');
+      }
       await refetch();
     } finally {
       setLoading(false);
     }
-  }, [selectedMode, filters, importUrls, categoryId, subcategoryId, projectId, setLoading, setSessionStatus, refetch]);
+  }, [
+    selectedMode,
+    filters,
+    importUrls,
+    categoryId,
+    subcategoryId,
+    categoryName,
+    subcategoryName,
+    projectId,
+    setLoading,
+    setSessionStatus,
+    refetch,
+    addLog,
+  ]);
 
   const handlePause = useCallback(async () => {
     await sendMessage({ type: 'PAUSE_SCRAPE' });
@@ -348,6 +438,18 @@ function SidePanel() {
         onSelectionChange={(cat, sub) => {
           setCategoryId(cat);
           setSubcategoryId(sub);
+          // Resolve names immediately so Start always has the exact search text
+          void sendMessage<undefined, Array<{
+            id: string;
+            name: string;
+            subcategories?: Array<{ id: string; name: string }>;
+          }>>({ type: 'GET_CATEGORIES' }).then((cats) => {
+            if (!Array.isArray(cats)) return;
+            const c = cats.find((x) => x.id === cat);
+            setCategoryName(c?.name ?? null);
+            const s = c?.subcategories?.find((x) => x.id === sub);
+            setSubcategoryName(s?.name ?? null);
+          });
         }}
       />
     </div>

@@ -83,9 +83,16 @@ const scrapeJobSchema = new Schema(
     mode: { type: String, required: true },
     status: { type: String, enum: ['running', 'completed', 'failed', 'interrupted'], default: 'running' },
     websiteUrl: { type: String },
+    platform: { type: String },
+    categoryName: { type: String },
+    subcategoryName: { type: String },
+    sortFilter: { type: String },
+    maxProducts: { type: Number },
     productsFound: { type: Number, default: 0 },
     productsSaved: { type: Number, default: 0 },
+    imagesDownloaded: { type: Number, default: 0 },
     errors: { type: Number, default: 0 },
+    errorMessages: { type: [String], default: [] },
     durationMs: { type: Number },
     metadata: { type: Schema.Types.Mixed },
   },
@@ -93,6 +100,29 @@ const scrapeJobSchema = new Schema(
 );
 
 export const ScrapeJob = model('ScrapeJob', scrapeJobSchema);
+
+const scrapeProductSchema = new Schema(
+  {
+    jobId: { type: Schema.Types.ObjectId, ref: 'ScrapeJob', required: true, index: true },
+    organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
+    title: { type: String },
+    price: { type: Number },
+    currency: { type: String },
+    productUrl: { type: String },
+    imageUrls: { type: [String], default: [] },
+    imageCount: { type: Number, default: 0 },
+    category: { type: String },
+    subcategory: { type: String },
+    sku: { type: String },
+    platform: { type: String },
+    scrapedAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true },
+);
+scrapeProductSchema.index({ jobId: 1, productUrl: 1 });
+
+export type ScrapeProductDoc = InferSchemaType<typeof scrapeProductSchema> & { _id: Types.ObjectId };
+export const ScrapeProduct = model('ScrapeProduct', scrapeProductSchema);
 
 const apiKeySchema = new Schema(
   {

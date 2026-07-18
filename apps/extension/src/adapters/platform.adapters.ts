@@ -25,6 +25,34 @@ export class GenericAdapter extends BaseAdapter {
   detect(_document: Document, _url: string): boolean {
     return true;
   }
+
+  override findProducts(document: Document, url: string): string[] {
+    const fromBase = super.findProducts(document, url);
+    if (fromBase.length > 0) return fromBase;
+
+    const links = new Set<string>();
+    const patterns = [
+      'a[href*="/product"]',
+      'a[href*="/products/"]',
+      'a[href*="/item/"]',
+      'a[href*="/p/"]',
+      'a[href*="/dp/"]',
+      'a[href*="/itm/"]',
+      'a[href*="/listing/"]',
+      'a[href*="/goods/"]',
+      '[data-product-id] a[href]',
+      '.product a[href]',
+      '.product-card a[href]',
+      '.product-item a[href]',
+    ];
+    document.querySelectorAll(patterns.join(', ')).forEach((a) => {
+      if (!(a instanceof HTMLAnchorElement) || !a.href) return;
+      if (a.href.startsWith('javascript:')) return;
+      if (/\/(cart|checkout|account|login|help|policy)/i.test(a.href)) return;
+      links.add(a.href.split('?')[0] ?? a.href);
+    });
+    return Array.from(links);
+  }
 }
 
 export class ShopifyAdapter extends BaseAdapter {
@@ -33,11 +61,18 @@ export class ShopifyAdapter extends BaseAdapter {
   readonly domains = ['myshopify.com', 'shopify.com'];
 
   detect(document: Document, url: string): boolean {
+    if (
+      /aliexpress\.|amazon\.|ebay\.|etsy\.|temu\.|alibaba\.|cjdropshipping\.|walmart\.|spocket\./i.test(
+        url,
+      )
+    ) {
+      return false;
+    }
     const html = document.documentElement.outerHTML;
     return (
       /cdn\.shopify\.com/i.test(html) ||
       /Shopify\.theme/i.test(html) ||
-      url.includes('/products/')
+      (url.includes('/products/') && /shopify/i.test(html))
     );
   }
 
@@ -67,7 +102,15 @@ export class WooCommerceAdapter extends BaseAdapter {
   readonly name = 'WooCommerce';
   readonly domains = [];
 
-  detect(document: Document, _url: string): boolean {
+  detect(document: Document, url: string): boolean {
+    // Marketplaces often mention WooCommerce in footer/marketing copy
+    if (
+      /aliexpress\.|amazon\.|ebay\.|etsy\.|temu\.|alibaba\.|cjdropshipping\.|walmart\.|spocket\./i.test(
+        url,
+      )
+    ) {
+      return false;
+    }
     return /woocommerce|wc-product|wp-content\/plugins\/woocommerce/i.test(
       document.documentElement.outerHTML,
     );
@@ -174,6 +217,16 @@ export class AmazonAdapter extends BaseAdapter {
     document.querySelectorAll('[data-asin]').forEach((card) => {
       const asin = card.getAttribute('data-asin');
       if (!asin || asin.length < 10) return;
+      // Skip empty / non-product result widgets
+      if (card.getAttribute('data-component-type') === 's-empty-result') return;
+      if (card.querySelector('.s-result-item') === null && !card.classList.contains('s-result-item') && !card.querySelector('h2')) {
+        // still allow cards with h2 or s-result-item class
+      }
+      const titleHint =
+        card.querySelector('h2')?.textContent?.trim() ??
+        card.querySelector('img')?.getAttribute('alt')?.trim() ??
+        '';
+      if (/\bresults for\b/i.test(titleHint) || /^\d+[\s\-–]+\d+\s+of\b/i.test(titleHint)) return;
       const normalized = normalizeAmazonUrl(url, `/dp/${asin}`);
       if (normalized) urls.add(normalized);
     });
@@ -191,10 +244,21 @@ export class AmazonAdapter extends BaseAdapter {
   }
 
   extractFromCard(card: Element, productUrl: string, pageUrl: string): Product {
-    const title =
-      card.querySelector('h2 a span, h2 span, .a-size-base-plus, .a-text-normal, .a-link-normal span')
-        ?.textContent?.trim() ??
-      card.querySelector('img')?.getAttribute('alt')?.trim();
+    const titleEl = card.querySelector(
+      'h2 a span.a-text-normal, h2 a span, h2 span.a-text-normal, .a-size-base-plus, .a-size-medium.a-color-base.a-text-normal',
+    );
+    let title = titleEl?.textContent?.trim() ?? card.querySelector('img')?.getAttribute('alt')?.trim();
+
+    // Reject Amazon UI chrome mistaken as product titles
+    if (
+      title &&
+      (/results for/i.test(title) ||
+        /^\d+[\s\-–]+\d+\s+of\b/i.test(title) ||
+        /^sort by:/i.test(title) ||
+        title.length > 280)
+    ) {
+      title = card.querySelector('img')?.getAttribute('alt')?.trim() ?? undefined;
+    }
 
     const priceText =
       card.querySelector('.a-price .a-offscreen')?.textContent ??
@@ -373,18 +437,118 @@ export class EtsyAdapter extends BaseAdapter {
 export class AliExpressAdapter extends BaseAdapter {
   readonly platform: Platform = 'aliexpress';
   readonly name = 'AliExpress';
-  readonly domains = ['aliexpress.com'];
+  readonly domains = [
+    'aliexpress.com',
+    'aliexpress.us',
+    'aliexpress.ru',
+    'aliexpress.fr',
+    'aliexpress.es',
+  ];
 
   detect(_document: Document, url: string): boolean {
-    return url.includes('aliexpress.com');
+    return /aliexpress\./i.test(url);
   }
 
-  override findProducts(document: Document, _url: string): string[] {
+  private normalizeItemUrl(href: string, pageUrl: string): string | null {
+    try {
+      const full = href.startsWith('http') ? href : new URL(href, pageUrl).href;
+      const match = full.match(/\/(?:item|i)\/(\d+)\.html/i) ?? full.match(/[?&]productId=(\d+)/i);
+      if (!match?.[1]) return null;
+      const origin = new URL(pageUrl).origin;
+      return `${origin}/item/${match[1]}.html`;
+    } catch {
+      return null;
+    }
+  }
+
+  override findProducts(document: Document, url: string): string[] {
     const links = new Set<string>();
-    document.querySelectorAll('a[href*="/item/"]').forEach((a) => {
-      if (a instanceof HTMLAnchorElement) links.add(a.href.split('?')[0] ?? a.href);
-    });
+
+    const add = (href: string) => {
+      const normalized = this.normalizeItemUrl(href, url);
+      if (normalized) links.add(normalized);
+    };
+
+    document
+      .querySelectorAll(
+        'a[href*="/item/"], a[href*="/i/"], a[href*="productId="], [data-product-id] a, .search-card-item a, .list--gallery--C2f2tvm a, .product-snippet a, .manhattan--container--1lP57Ag a',
+      )
+      .forEach((a) => {
+        if (a instanceof HTMLAnchorElement && a.href) add(a.href);
+      });
+
+    // Fallback: any anchor whose href looks like a product id
+    if (links.size === 0) {
+      document.querySelectorAll('a[href]').forEach((a) => {
+        if (a instanceof HTMLAnchorElement) add(a.href);
+      });
+    }
+
     return Array.from(links);
+  }
+
+  extractFromCard(card: Element, productUrl: string, pageUrl: string): Product {
+    const title =
+      card.querySelector(
+        'h1, h2, h3, [class*="title"], [class*="Title"], a[title], .multi--titleText--nXeOvyr',
+      )?.textContent?.trim() ||
+      card.querySelector('a[href*="/item/"]')?.getAttribute('title')?.trim() ||
+      card.querySelector('img')?.getAttribute('alt')?.trim() ||
+      undefined;
+
+    const priceText =
+      card.querySelector(
+        '[class*="price"], [class*="Price"], .multi--price-sale--u-YQbCW, .uniform-banner-box-price',
+      )?.textContent?.trim() ?? undefined;
+
+    const img = card.querySelector('img');
+    const rawSrc =
+      img instanceof HTMLImageElement
+        ? img.src || img.dataset['src'] || img.getAttribute('data-src') || ''
+        : '';
+    const imageUrl = rawSrc ? normalizeImageUrl(rawSrc) : undefined;
+
+    const ordersText = card.querySelector('[class*="trade"], [class*="sold"], [class*="order"]')
+      ?.textContent;
+    const reviewMatch = ordersText?.replace(/,/g, '').match(/(\d+)/);
+    const reviewCount = reviewMatch?.[1] ? parseInt(reviewMatch[1], 10) : undefined;
+
+    return {
+      platform: this.platform,
+      title: title || undefined,
+      price: priceText ? parsePrice(priceText) ?? undefined : undefined,
+      currency: 'USD',
+      productUrl,
+      website: getDomain(pageUrl),
+      scrapedDate: new Date().toISOString(),
+      imageUrls: imageUrl ? [imageUrl] : [],
+      images: imageUrl ? [{ url: imageUrl, isCover: true, position: 0 }] : [],
+      imageCount: imageUrl ? 1 : 0,
+      reviewCount,
+    };
+  }
+
+  protected override parseTitle(document: Document): string | undefined {
+    return (
+      document.querySelector('h1[data-pl="product-title"], h1.title, .product-title-text, h1')
+        ?.textContent?.trim() ?? super.parseTitle(document)
+    );
+  }
+
+  override parseImages(document: Document, product: Product) {
+    const images = super.parseImages(document, product);
+    document
+      .querySelectorAll(
+        '.images-view-item img, .slider--img--kD4mIg7 img, [class*="gallery"] img, [class*="image-view"] img',
+      )
+      .forEach((img) => {
+        if (!(img instanceof HTMLImageElement)) return;
+        const src = normalizeImageUrl(img.src || img.dataset['src'] || '');
+        if (src && !images.find((i) => i.url === src)) {
+          images.push({ url: src, position: images.length, isCover: images.length === 0 });
+        }
+      });
+    return images;
   }
 }
 
@@ -528,15 +692,128 @@ export class CjDropshippingAdapter extends BaseAdapter {
   readonly domains = ['cjdropshipping.com'];
 
   detect(_document: Document, url: string): boolean {
-    return url.includes('cjdropshipping.com');
+    return /cjdropshipping\.com/i.test(url);
   }
 
-  override findProducts(document: Document, _url: string): string[] {
+  private normalizeProductUrl(href: string, pageUrl: string): string | null {
+    try {
+      const full = href.startsWith('http') ? href : new URL(href, pageUrl).href;
+      // /product/slug-p-ID.html or /product/-p-ID.html
+      const withPid = full.match(/\/product\/[^?\s#]*?-p-([A-Za-z0-9-]+)\.html/i);
+      if (withPid?.[1]) {
+        const origin = new URL(pageUrl).origin;
+        return `${origin}/product/-p-${withPid[1]}.html`;
+      }
+      // /product/ID.html or path containing pid=
+      const plain = full.match(/\/product\/([A-Za-z0-9-]{8,})\.html/i);
+      if (plain?.[1] && !/^(list|search|category)$/i.test(plain[1])) {
+        return full.split('?')[0] ?? full;
+      }
+      const pid = full.match(/[?&](?:pid|productId|id)=([A-Za-z0-9-]+)/i);
+      if (pid?.[1]) {
+        const origin = new URL(pageUrl).origin;
+        return `${origin}/product/-p-${pid[1]}.html`;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  override findProducts(document: Document, url: string): string[] {
     const links = new Set<string>();
-    document.querySelectorAll('a[href*="/product/"], a[href*="/p/"]').forEach((a) => {
-      if (a instanceof HTMLAnchorElement) links.add(a.href.split('?')[0] ?? a.href);
-    });
+
+    const addHref = (href: string) => {
+      const normalized = this.normalizeProductUrl(href, url);
+      if (normalized) links.add(normalized);
+    };
+
+    document
+      .querySelectorAll(
+        'a[href*="/product/"], a[href*="-p-"], a[href*="pid="], a[href*="productId="]',
+      )
+      .forEach((a) => {
+        if (a instanceof HTMLAnchorElement && a.href) addHref(a.href);
+      });
+
+    // Cards may expose product id without a clean href
+    document
+      .querySelectorAll(
+        '[data-id], [data-pid], [data-product-id], [data-spu], [productid], [pid]',
+      )
+      .forEach((el) => {
+        const id =
+          el.getAttribute('data-id') ||
+          el.getAttribute('data-pid') ||
+          el.getAttribute('data-product-id') ||
+          el.getAttribute('data-spu') ||
+          el.getAttribute('productid') ||
+          el.getAttribute('pid');
+        if (id && id.length >= 8) {
+          try {
+            links.add(`${new URL(url).origin}/product/-p-${id}.html`);
+          } catch {
+            // ignore
+          }
+        }
+        const anchorEl = el.querySelector('a[href]') ?? el.closest('a');
+        if (anchorEl instanceof HTMLAnchorElement && anchorEl.href) {
+          addHref(anchorEl.href);
+        }
+      });
+
+    // Fallback: any anchor whose path looks like a CJ product
+    if (links.size === 0) {
+      document.querySelectorAll('a[href]').forEach((a) => {
+        if (a instanceof HTMLAnchorElement) addHref(a.href);
+      });
+    }
+
     return Array.from(links);
+  }
+
+  extractFromCard(card: Element, productUrl: string, pageUrl: string): Product {
+    const title =
+      card
+        .querySelector(
+          '[class*="name"], [class*="Name"], [class*="title"], [class*="Title"], h2, h3, a[title]',
+        )
+        ?.getAttribute('title')
+        ?.trim() ||
+      card.querySelector(
+        '[class*="name"], [class*="Name"], [class*="title"], [class*="Title"], h2, h3, a',
+      )?.textContent?.trim() ||
+      card.querySelector('img')?.getAttribute('alt')?.trim() ||
+      undefined;
+
+    const priceText =
+      card.querySelector(
+        '[class*="price"], [class*="Price"], [class*="sellPrice"], .price',
+      )?.textContent?.trim() ?? undefined;
+
+    const img = card.querySelector('img');
+    const rawSrc =
+      img instanceof HTMLImageElement
+        ? img.src ||
+          img.dataset['src'] ||
+          img.getAttribute('data-src') ||
+          img.getAttribute('data-original') ||
+          ''
+        : '';
+    const imageUrl = rawSrc ? normalizeImageUrl(rawSrc) : undefined;
+
+    return {
+      platform: this.platform,
+      title: title || undefined,
+      price: priceText ? parsePrice(priceText) ?? undefined : undefined,
+      currency: 'USD',
+      productUrl,
+      website: getDomain(pageUrl),
+      scrapedDate: new Date().toISOString(),
+      imageUrls: imageUrl ? [imageUrl] : [],
+      images: imageUrl ? [{ url: imageUrl, isCover: true, position: 0 }] : [],
+      imageCount: imageUrl ? 1 : 0,
+    };
   }
 }
 

@@ -13,6 +13,7 @@ import type {
 import {
   DEFAULT_SETTINGS,
   STORAGE_KEYS,
+  delay,
   generateRequestId,
 } from '@fetcher/shared';
 import { backendApi } from '../lib/backend-api';
@@ -21,15 +22,25 @@ import { clearCheckpoint, loadCheckpoint } from './checkpoint';
 import { scrapeOrchestrator } from './scrape-orchestrator';
 import { urlQueueOrchestrator } from './url-queue-orchestrator';
 import { discoverProductUrls } from './site-crawler';
+import { getSortedStartUrl } from '../content/scrape-page';
+import { isJunkProductTitle, matchesCategoryTarget } from '../content/filters';
 import * as categoryStore from './category-store';
+import { ensureContentScriptReady } from './content-script';
+import { downloadBlobFile, downloadProductImagesLocally } from './local-downloads';
 
 class SessionManager {
   private session: ScrapeSession | null = null;
   private logs: LogEntry[] = [];
   private backendConnected = false;
+  /** In-memory products for the active cloud run (for local details.txt if needed). */
+  private cloudProducts: Product[] = [];
 
   getSession(): ScrapeSession | null {
     return this.session;
+  }
+
+  getCloudProducts(): Product[] {
+    return this.cloudProducts;
   }
 
   getLogs(): LogEntry[] {
@@ -38,6 +49,10 @@ class SessionManager {
 
   isBackendConnected(): boolean {
     return this.backendConnected;
+  }
+
+  isCloudMode(): boolean {
+    return Boolean(this.session?.metadata?.['cloudMode']);
   }
 
   async load(): Promise<void> {
@@ -53,6 +68,12 @@ class SessionManager {
 
     await backendApi.init();
     this.backendConnected = await backendApi.healthCheck();
+  }
+
+  async refreshBackend(): Promise<boolean> {
+    await backendApi.init();
+    this.backendConnected = await backendApi.healthCheck();
+    return this.backendConnected;
   }
 
   private async persist(): Promise<void> {
@@ -89,27 +110,72 @@ class SessionManager {
   async start(payload: StartScrapePayload, tabUrl: string): Promise<ScrapeSession> {
     const now = new Date().toISOString();
     const folderName = `scrape_${now.replace(/[:.]/g, '-').slice(0, 19)}`;
+    this.cloudProducts = [];
 
-    let backendSessionId: string | undefined;
-    if (this.backendConnected) {
-      try {
-        const result = await backendApi.startScrape({
-          mode: payload.mode,
-          websiteUrl: tabUrl,
-          urls: payload.urls,
-          categoryId: payload.categoryId,
-          subcategoryId: payload.subcategoryId,
-          folderName,
-          products: [],
-        });
-        backendSessionId = result.sessionId;
-      } catch (error) {
-        this.addLog('warning', `Backend unavailable, using local session: ${error instanceof Error ? error.message : 'unknown'}`);
-      }
+    const settings = settingsManager.get();
+    const token = settings.accessToken;
+    if (!token) {
+      throw new Error('Sign in required to save scrape runs to your account');
     }
 
+    cloudApi.setAccessToken(token);
+    cloudApi.setBaseUrl(settings.cloudApiUrl ?? 'https://api.productfetcher.online');
+
+    // Prefer cloud (no local backend). Fall back to local SQLite only if cloud job create fails
+    // and local backend happens to be up.
+    let sessionId: string;
+    let cloudJobId: string | undefined;
+    let projectId = payload.projectId;
+    let cloudMode = true;
+
+    try {
+      projectId = projectId ?? (await cloudApi.ensureDefaultProject());
+      const res = await cloudApi.logJob({
+        mode: payload.mode,
+        websiteUrl: tabUrl,
+        projectId,
+        platform: undefined,
+        categoryName: payload.categoryName,
+        subcategoryName: payload.subcategoryName,
+        sortFilter: payload.sortFilter,
+        maxProducts: payload.maxProducts,
+        status: 'running',
+        productsFound: 0,
+        productsSaved: 0,
+        metadata: {
+          folderName,
+          categoryId: payload.categoryId,
+          subcategoryId: payload.subcategoryId,
+          maxPages: payload.maxPages,
+        },
+      });
+      sessionId = res.job._id;
+      cloudJobId = res.job._id;
+    } catch (cloudError) {
+      await backendApi.init();
+      if (!(await backendApi.healthCheck())) {
+        throw new Error(
+          `Cloud save failed (${cloudError instanceof Error ? cloudError.message : 'unknown'}) and local backend is offline.`,
+        );
+      }
+      cloudMode = false;
+      const result = await backendApi.startScrape({
+        mode: payload.mode,
+        websiteUrl: tabUrl,
+        urls: payload.urls,
+        categoryId: payload.categoryId,
+        subcategoryId: payload.subcategoryId,
+        categoryName: payload.categoryName,
+        subcategoryName: payload.subcategoryName,
+        folderName,
+        products: [],
+      });
+      sessionId = result.sessionId;
+    }
+
+    this.backendConnected = !cloudMode;
     this.session = {
-      id: backendSessionId ?? generateRequestId(),
+      id: sessionId,
       mode: payload.mode,
       status: 'running',
       websiteUrl: tabUrl,
@@ -125,16 +191,31 @@ class SessionManager {
       metadata: {
         categoryId: payload.categoryId,
         subcategoryId: payload.subcategoryId,
-        projectId: payload.projectId,
-        backendConnected: this.backendConnected,
+        categoryName: payload.categoryName,
+        subcategoryName: payload.subcategoryName,
+        projectId,
+        cloudJobId,
+        cloudMode,
+        backendConnected: !cloudMode,
         sortFilter: payload.sortFilter,
         maxPages: payload.maxPages,
+        maxProducts: payload.maxProducts,
         folderName,
       },
     };
 
     await this.persist();
-    this.addLog('info', `Started scraping in ${payload.mode} mode → ${folderName}`, this.session.id);
+    this.addLog(
+      'info',
+      `Started scraping in ${payload.mode} mode → ${folderName}` +
+        (cloudMode ? ' (cloud run — files download to your computer)' : ' (local backend)') +
+        (payload.subcategoryName
+          ? ` · target: ${payload.subcategoryName}`
+          : payload.categoryName
+            ? ` · target: ${payload.categoryName}`
+            : ''),
+      this.session.id,
+    );
     this.broadcastProgress();
     return this.session;
   }
@@ -145,66 +226,143 @@ class SessionManager {
   ): Promise<boolean> {
     if (!this.session) return false;
 
-    if (this.backendConnected) {
-      try {
-        const started = Date.now();
-        const result = await backendApi.saveProduct(
-          product,
+    if (isJunkProductTitle(product.title)) {
+      this.addLog('warning', `Skipped junk listing title: ${(product.title ?? '').slice(0, 60)}`, this.session.id);
+      return false;
+    }
+
+    const categoryName = this.session.metadata?.['categoryName'] as string | undefined;
+    const subcategoryName = this.session.metadata?.['subcategoryName'] as string | undefined;
+    if (
+      (categoryName || subcategoryName) &&
+      !matchesCategoryTarget(product, { categoryName, subcategoryName })
+    ) {
+      this.addLog(
+        'warning',
+        `Skipped off-target product (wanted "${subcategoryName ?? categoryName}"): ${product.title?.slice(0, 80)}`,
+        this.session.id,
+      );
+      return false;
+    }
+
+    const cloudMode = Boolean(this.session.metadata?.['cloudMode']);
+    const folderName = (this.session.metadata?.['folderName'] as string) ?? this.session.id;
+    const started = Date.now();
+
+    try {
+      if (cloudMode) {
+        const jobId = (this.session.metadata?.['cloudJobId'] as string) ?? this.session.id;
+        const settings = settingsManager.get();
+        cloudApi.setAccessToken(settings.accessToken!);
+        cloudApi.setBaseUrl(settings.cloudApiUrl ?? 'https://api.productfetcher.online');
+
+        const imageUrls = product.imageUrls ?? [];
+        await cloudApi.appendProducts(jobId, [
+          {
+            title: product.title,
+            price: product.price,
+            currency: product.currency,
+            productUrl: product.productUrl,
+            imageUrls: imageUrls.slice(0, 50),
+            imageCount: imageUrls.length,
+            category: categoryName ?? product.category,
+            subcategory: subcategoryName ?? product.subcategory,
+            sku: product.sku,
+            platform: product.platform,
+            scrapedAt: product.scrapedDate ?? new Date().toISOString(),
+          },
+        ]);
+
+        const imagesDownloaded = await downloadProductImagesLocally(folderName, product);
+        this.cloudProducts.push(product);
+        this.session.productsSaved++;
+        this.session.imagesDownloaded += imagesDownloaded;
+
+        this.addLog(
+          'success',
+          `Saved: ${product.title ?? product.uniqueId}` +
+            (imagesDownloaded ? ` (${imagesDownloaded} images → Downloads/fetcher-io)` : ''),
           this.session.id,
-          this.session.metadata?.['categoryId'] as string | undefined,
-          this.session.metadata?.['subcategoryId'] as string | undefined,
+          {
+            adapter: meta?.adapter ?? product.platform,
+            productUrl: meta?.productUrl ?? product.productUrl,
+            durationMs: meta?.durationMs ?? Date.now() - started,
+            images: imagesDownloaded,
+          },
         );
-        const durationMs = meta?.durationMs ?? Date.now() - started;
+        this.broadcastProgress();
+        return true;
+      }
 
-        if (result.saved) {
-          this.session.productsSaved++;
-          if (result.imagesDownloaded) {
-            this.session.imagesDownloaded += result.imagesDownloaded;
-          }
-          if (result.imagesPending) {
-            this.session.imagesPending = (this.session.imagesPending ?? 0) + result.imagesPending;
-          }
-          this.addLog(
-            'success',
-            `Saved: ${product.title ?? product.uniqueId}`,
-            this.session.id,
-            {
-              adapter: meta?.adapter ?? product.platform,
-              productUrl: meta?.productUrl ?? product.productUrl,
-              durationMs,
-              images: result.imagesDownloaded ?? 0,
-            },
-          );
-          this.broadcastProgress();
-          return true;
-        }
-
-        if (result.reason === 'duplicate') {
-          this.addLog(
-            'warning',
-            `Duplicate skipped: ${product.title ?? product.productUrl}`,
-            this.session.id,
-            { productUrl: product.productUrl, reason: 'duplicate' },
-          );
-          this.broadcastProgress();
-          return false;
-        }
-      } catch (error) {
+      if (!(await this.refreshBackend())) {
         this.session.errors++;
         this.addLog(
           'error',
-          `Save failed: ${error instanceof Error ? error.message : 'unknown'}`,
+          'Backend offline — product not saved. Restart `pnpm dev:backend`.',
           this.session.id,
-          { productUrl: product.productUrl, adapter: product.platform },
         );
         this.broadcastProgress();
         return false;
       }
-    }
 
-    this.session.productsSaved++;
-    this.broadcastProgress();
-    return true;
+      const result = await backendApi.saveProduct(
+        product,
+        this.session.id,
+        this.session.metadata?.['categoryId'] as string | undefined,
+        this.session.metadata?.['subcategoryId'] as string | undefined,
+        this.session.metadata?.['categoryName'] as string | undefined,
+        this.session.metadata?.['subcategoryName'] as string | undefined,
+      );
+      const durationMs = meta?.durationMs ?? Date.now() - started;
+
+      if (result.saved) {
+        this.session.productsSaved++;
+        if (result.imagesDownloaded) {
+          this.session.imagesDownloaded += result.imagesDownloaded;
+        }
+        if (result.imagesPending) {
+          this.session.imagesPending = (this.session.imagesPending ?? 0) + result.imagesPending;
+        }
+        this.addLog(
+          'success',
+          `Saved: ${product.title ?? product.uniqueId}` +
+            (result.imagesDownloaded ? ` (${result.imagesDownloaded} images)` : ''),
+          this.session.id,
+          {
+            adapter: meta?.adapter ?? product.platform,
+            productUrl: meta?.productUrl ?? product.productUrl,
+            durationMs,
+            images: result.imagesDownloaded ?? 0,
+          },
+        );
+        this.broadcastProgress();
+        return true;
+      }
+
+      if (result.reason === 'duplicate') {
+        this.addLog(
+          'warning',
+          `Duplicate skipped: ${product.title ?? product.productUrl}`,
+          this.session.id,
+          { productUrl: product.productUrl, reason: 'duplicate' },
+        );
+        this.broadcastProgress();
+        return false;
+      }
+
+      this.addLog('warning', `Product not saved: ${product.title ?? product.productUrl}`, this.session.id);
+      return false;
+    } catch (error) {
+      this.session.errors++;
+      this.addLog(
+        'error',
+        `Save failed: ${error instanceof Error ? error.message : 'unknown'}`,
+        this.session.id,
+        { productUrl: product.productUrl, adapter: product.platform },
+      );
+      this.broadcastProgress();
+      return false;
+    }
   }
 
   pause(): void {
@@ -233,11 +391,13 @@ class SessionManager {
     this.persist();
     this.addLog('warning', 'Session interrupted — use Resume to continue', this.session.id);
     this.broadcastProgress();
+    void finalizeCloudJob(this.session, 'interrupted');
   }
 
   reset(): void {
     this.session = null;
     this.logs = [];
+    this.cloudProducts = [];
     void clearCheckpoint();
     this.persist();
     this.broadcastIdle();
@@ -428,6 +588,15 @@ function statsWithAuth(tabUrl: string, platform: string | null, authRequired = f
 }
 
 async function createCloudJobForSession(session: ScrapeSession, projectId?: string): Promise<void> {
+  // Job is created in SessionManager.start for cloud mode
+  if (session.metadata?.['cloudJobId']) {
+    if (projectId && session.metadata['projectId'] !== projectId) {
+      session.metadata['projectId'] = projectId;
+      sessionManager.updateStats({ metadata: session.metadata });
+    }
+    return;
+  }
+
   const settings = settingsManager.get();
   if (!settings.accessToken) return;
 
@@ -440,6 +609,11 @@ async function createCloudJobForSession(session: ScrapeSession, projectId?: stri
       mode: session.mode,
       websiteUrl: session.websiteUrl,
       projectId: pid,
+      platform: session.platform,
+      categoryName: session.metadata?.['categoryName'] as string | undefined,
+      subcategoryName: session.metadata?.['subcategoryName'] as string | undefined,
+      sortFilter: session.metadata?.['sortFilter'] as string | undefined,
+      maxProducts: session.metadata?.['maxProducts'] as number | undefined,
       status: 'running',
       productsFound: 0,
       productsSaved: 0,
@@ -457,7 +631,7 @@ async function createCloudJobForSession(session: ScrapeSession, projectId?: stri
       session.metadata['projectId'] = pid;
     }
     sessionManager.updateStats({ metadata: session.metadata });
-    sessionManager.addLog('info', `Run synced to dashboard (Project)`, session.id);
+    sessionManager.addLog('info', `Run synced to dashboard`, session.id);
   } catch (error) {
     sessionManager.addLog(
       'warning',
@@ -468,7 +642,9 @@ async function createCloudJobForSession(session: ScrapeSession, projectId?: stri
 }
 
 async function finalizeCloudJob(session: ScrapeSession, status: 'completed' | 'failed' | 'interrupted'): Promise<void> {
-  const jobId = session.metadata?.['cloudJobId'] as string | undefined;
+  const jobId = (session.metadata?.['cloudJobId'] as string | undefined) ?? (
+    session.metadata?.['cloudMode'] ? session.id : undefined
+  );
   if (!jobId || !settingsManager.get().accessToken) return;
 
   cloudApi.setAccessToken(settingsManager.get().accessToken!);
@@ -477,8 +653,12 @@ async function finalizeCloudJob(session: ScrapeSession, status: 'completed' | 'f
       status,
       productsFound: session.productsFound,
       productsSaved: session.productsSaved,
+      imagesDownloaded: session.imagesDownloaded,
       errors: session.errors,
       durationMs: Date.now() - new Date(session.startedAt).getTime(),
+      platform: session.platform,
+      categoryName: session.metadata?.['categoryName'] as string | undefined,
+      subcategoryName: session.metadata?.['subcategoryName'] as string | undefined,
       metadata: {
         localSessionId: session.id,
         platform: session.platform,
@@ -599,12 +779,110 @@ async function runScrape(
     return;
   }
 
-  if (payload.mode === 'entire_website') {
+  // Always resolve listing URL from subcategory/category + sort BEFORE scraping
+  const targetUrl = getSortedStartUrl(
+    tabInfo.url,
+    payload.sortFilter,
+    payload.categoryName,
+    payload.subcategoryName,
+  );
+  const targetLabel = payload.subcategoryName ?? payload.categoryName;
+  const limitLabel = payload.maxProducts ? ` · top ${payload.maxProducts}` : '';
+
+  async function waitForTabComplete(tabId: number, timeoutMs = 20000): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }, timeoutMs);
+      const listener = (id: number, info: chrome.tabs.TabChangeInfo) => {
+        if (id === tabId && info.status === 'complete') {
+          clearTimeout(timeout);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+  }
+
+  if (targetLabel && tabInfo.tabId) {
+    sessionManager.addLog(
+      'info',
+      `Step 1/3: Searching exactly for "${targetLabel}"${limitLabel}...`,
+      session.id,
+    );
+
+    // Navigate to marketplace search URL (single query param for CJ compatibility)
+    if (targetUrl !== tabInfo.url) {
+      await chrome.tabs.update(tabInfo.tabId, { url: targetUrl });
+      await waitForTabComplete(tabInfo.tabId);
+      const settleMs = /aliexpress\.|temu\.|alibaba\.|cjdropshipping\./i.test(targetUrl)
+        ? 2800
+        : 800;
+      await delay(settleMs);
+    }
+
+    // Force the site's own search box so SPA routers apply the exact subcategory
+    const ready = await ensureContentScriptReady(tabInfo.tabId);
+    if (ready) {
+      try {
+        const searchResult = (await chrome.tabs.sendMessage(tabInfo.tabId, {
+          type: 'PERFORM_SITE_SEARCH',
+          payload: { query: targetLabel },
+        })) as { ok?: boolean; method?: string; url?: string };
+
+        sessionManager.addLog(
+          'info',
+          `Site search "${targetLabel}" via ${searchResult?.method ?? 'unknown'}`,
+          session.id,
+        );
+
+        if (
+          searchResult?.method === 'dom-click' ||
+          searchResult?.method === 'dom-enter' ||
+          searchResult?.method === 'location'
+        ) {
+          await waitForTabComplete(tabInfo.tabId);
+          await delay(
+            /cjdropshipping\.|aliexpress\./i.test(tabInfo.url) ? 3000 : 1200,
+          );
+        }
+      } catch (error) {
+        sessionManager.addLog(
+          'warning',
+          `Site search UI failed: ${error instanceof Error ? error.message : 'unknown'} — using URL search`,
+          session.id,
+        );
+      }
+    }
+
+    const tab = await chrome.tabs.get(tabInfo.tabId);
+    tabInfo = { ...tabInfo, url: tab.url ?? targetUrl };
+    sessionManager.updateStats({ currentUrl: tabInfo.url });
+    sessionManager.addLog('info', `Search URL: ${tabInfo.url}`, session.id);
+  } else if (targetUrl !== tabInfo.url && tabInfo.tabId) {
+    sessionManager.addLog('info', `Step 1/3: Applying sort filter${limitLabel}...`, session.id);
+    await chrome.tabs.update(tabInfo.tabId, { url: targetUrl });
+    await waitForTabComplete(tabInfo.tabId);
+    await delay(800);
+    tabInfo = { ...tabInfo, url: targetUrl };
+    sessionManager.updateStats({ currentUrl: targetUrl });
+  }
+
+  // With a subcategory/category target on Amazon (or similar search), prefer collection
+  // pagination of that search — whole-site crawl ignores the filter.
+  const hasTarget = Boolean(payload.subcategoryName || payload.categoryName);
+  const useCollectionForTarget =
+    hasTarget &&
+    (payload.mode === 'entire_website' || payload.mode === 'current_collection');
+
+  if (payload.mode === 'entire_website' && !useCollectionForTarget) {
     sessionManager.addLog('info', 'Discovering product URLs (sitemap/BFS)...', session.id);
     const discovery = await discoverProductUrls(tabInfo.url, {
       maxPages: payload.maxCrawlPages ?? payload.maxPages ?? 20,
       respectRobots: payload.respectRobots !== false,
-      maxProducts: 500,
+      maxProducts: payload.maxProducts ?? 500,
     });
 
     sessionManager.updateStats({
@@ -627,11 +905,32 @@ async function runScrape(
     sessionManager.addLog('warning', 'Crawl found no URLs — falling back to pagination', session.id);
   }
 
+  if (useCollectionForTarget && payload.mode === 'entire_website') {
+    sessionManager.addLog(
+      'info',
+      `Step 2/3: Filters applied — scraping search results for "${targetLabel}" (not entire site)`,
+      session.id,
+    );
+  }
+
+  if (payload.maxProducts) {
+    sessionManager.addLog(
+      'info',
+      `Step 3/3: Will scrape top ${payload.maxProducts} products then stop`,
+      session.id,
+    );
+  }
+
   if (!tabInfo.tabId) throw new Error('No active tab');
   await scrapeOrchestrator.start(
     tabInfo.tabId,
     tabInfo.url,
-    payload,
+    {
+      ...payload,
+      // Force collection-style page scrape when targeting a subcategory
+      mode: useCollectionForTarget ? 'current_collection' : payload.mode,
+      maxPages: payload.maxPages ?? (useCollectionForTarget ? 10 : undefined),
+    },
     session.id,
     (msg, level) => sessionManager.addLog(level, msg, session.id),
   );
@@ -705,6 +1004,21 @@ async function handleMessage(
       return categoryStore.createSubcategory(categoryId, name);
     }
 
+    case 'DELETE_CATEGORY': {
+      const categoryId = (message.payload as { categoryId?: string })?.categoryId;
+      if (!categoryId) return { error: 'categoryId required' };
+      await categoryStore.deleteCategory(categoryId);
+      return { ok: true };
+    }
+
+    case 'DELETE_SUBCATEGORY': {
+      const { categoryId, subcategoryId } =
+        (message.payload as { categoryId?: string; subcategoryId?: string }) ?? {};
+      if (!categoryId || !subcategoryId) return { error: 'categoryId and subcategoryId required' };
+      await categoryStore.deleteSubcategory(categoryId, subcategoryId);
+      return { ok: true };
+    }
+
     case 'GET_PROJECTS': {
       if (!isSignedIn()) return { projects: [] };
       cloudApi.setAccessToken(settingsManager.get().accessToken!);
@@ -721,34 +1035,89 @@ async function handleMessage(
     }
 
     case 'GET_BACKEND_STATUS': {
+      // Signed-in cloud mode does not need local backend
+      if (isSignedIn()) {
+        return { connected: true, cloud: true };
+      }
       await backendApi.init();
-      return { connected: await backendApi.healthCheck() };
+      return { connected: await backendApi.healthCheck(), cloud: false };
     }
 
     case 'EXPORT_AND_DOWNLOAD': {
       const { format, sessionId } = (message.payload as { format?: string; sessionId?: string }) ?? {};
       if (!format) return { error: 'format required' };
-      await backendApi.init();
-      if (!(await backendApi.healthCheck())) {
-        return { error: 'Data service offline. Run: pnpm dev:backend on your computer.' };
+
+      const session = sessionManager.getSession();
+      const activeSessionId = sessionId ?? session?.id;
+      if (!activeSessionId) {
+        return { error: 'No active session to export. Start a scrape first.' };
       }
+
+      const cloudMode = Boolean(session?.metadata?.['cloudMode']);
+      const cloudJobId =
+        (session?.metadata?.['cloudJobId'] as string | undefined) ??
+        (cloudMode ? activeSessionId : undefined);
+
       try {
-        const result = await backendApi.export(format as import('@fetcher/shared').ExportFormat, sessionId);
-        if (!result.downloadUrl || !result.filename) {
-          return { error: 'Export produced no file' };
+        if (cloudMode && cloudJobId && isSignedIn()) {
+          cloudApi.setAccessToken(settingsManager.get().accessToken!);
+          cloudApi.setBaseUrl(settingsManager.get().cloudApiUrl ?? 'https://api.productfetcher.online');
+
+          const exportFormat = format === 'csv' ? 'csv' : 'json';
+          if (format === 'excel' || format === 'zip' || format === 'txt') {
+            // Stream JSON from cloud (no VPS file storage); images already in Downloads
+            const { blob, filename } = await cloudApi.exportJob(cloudJobId, 'json');
+            if (blob.size < 10) {
+              return { error: 'Export empty — no products saved for this run yet.' };
+            }
+            const downloadId = await downloadBlobFile(
+              filename.replace(/\.json$/, `.${format === 'txt' ? 'json' : 'json'}`),
+              blob,
+            );
+            const detail = await cloudApi.getJob(cloudJobId);
+            return {
+              success: true,
+              count: detail.productCount,
+              downloadId,
+              filename,
+              note:
+                format === 'zip'
+                  ? 'Product metadata downloaded as JSON. Images were saved to Downloads/fetcher-io during scrape.'
+                  : undefined,
+            };
+          }
+
+          const { blob, filename } = await cloudApi.exportJob(cloudJobId, exportFormat);
+          if (blob.size < 10) {
+            return { error: 'Export empty — no products saved for this run yet.' };
+          }
+          const downloadId = await downloadBlobFile(filename, blob);
+          const detail = await cloudApi.getJob(cloudJobId);
+          return { success: true, count: detail.productCount, downloadId, filename };
+        }
+
+        await backendApi.init();
+        if (!(await backendApi.healthCheck())) {
+          return { error: 'Sign in to export from cloud, or run pnpm dev:backend for local export.' };
+        }
+
+        const stored = await backendApi.getProducts(activeSessionId, 1);
+        if (!stored.total) {
+          return { error: 'No products saved for this session yet.' };
+        }
+
+        const result = await backendApi.export(
+          format as import('@fetcher/shared').ExportFormat,
+          activeSessionId,
+        );
+        if (!result.count || !result.downloadUrl || !result.filename) {
+          return { error: 'Export produced an empty file — no products in this session.' };
         }
         const blob = await backendApi.downloadExport(result.downloadUrl, result.filename);
-        const reader = new FileReader();
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-        const downloadId = await chrome.downloads.download({
-          url: dataUrl,
-          filename: `fetcher-io/${result.filename}`,
-          saveAs: true,
-        });
+        if (blob.size < 10) {
+          return { error: 'Export file is empty (0 bytes).' };
+        }
+        const downloadId = await downloadBlobFile(result.filename, blob);
         return { success: true, count: result.count, downloadId, filename: result.filename };
       } catch (error) {
         return { error: error instanceof Error ? error.message : 'Export failed' };
@@ -758,22 +1127,30 @@ async function handleMessage(
     case 'PURGE_SESSION': {
       const session = sessionManager.getSession();
       const sessionId = session?.id;
-      await backendApi.init();
-      if (sessionId && (await backendApi.healthCheck())) {
-        try {
-          await backendApi.purgeSession(sessionId);
-        } catch (error) {
-          sessionManager.addLog(
-            'warning',
-            `Purge partial: ${error instanceof Error ? error.message : 'unknown'}`,
-            sessionId,
-          );
+      const cloudJobId = session?.metadata?.['cloudJobId'] as string | undefined;
+      // Free local session only — cloud run history stays on dashboard until deleted there
+      if (sessionId && !session?.metadata?.['cloudMode']) {
+        await backendApi.init();
+        if (await backendApi.healthCheck()) {
+          try {
+            await backendApi.purgeSession(sessionId);
+          } catch (error) {
+            sessionManager.addLog(
+              'warning',
+              `Purge partial: ${error instanceof Error ? error.message : 'unknown'}`,
+              sessionId,
+            );
+          }
         }
       }
       scrapeOrchestrator.stop();
       urlQueueOrchestrator.stop();
       sessionManager.reset();
-      return { success: true, purged: true };
+      return {
+        success: true,
+        purged: true,
+        cloudJobKept: Boolean(cloudJobId),
+      };
     }
 
     case 'GET_RESUMABLE_SESSION': {
@@ -842,11 +1219,24 @@ async function handleMessage(
         return sessionManager.getDashboardStats(tabInfo.url, platform);
       }
 
-      const session = await sessionManager.start(payload, tabInfo.url);
-      void createCloudJobForSession(session, payload.projectId);
+      let session;
+      try {
+        session = await sessionManager.start(payload, tabInfo.url);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Failed to start scrape';
+        sessionManager.addLog('error', msg);
+        return { ...statsWithAuth(tabInfo.url, platform), error: msg };
+      }
+
+      await createCloudJobForSession(session, payload.projectId);
 
       if (platform) {
         sessionManager.updateStats({ platform: platform as ScrapeSession['platform'] });
+        const jobId = session.metadata?.['cloudJobId'] as string | undefined;
+        if (jobId && settingsManager.get().accessToken) {
+          cloudApi.setAccessToken(settingsManager.get().accessToken!);
+          void cloudApi.updateJob(jobId, { platform }).catch(() => {});
+        }
       }
 
       try {

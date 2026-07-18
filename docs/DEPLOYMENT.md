@@ -14,7 +14,9 @@ Production deployment for **productfetcher.online** on a single Ubuntu 22.04/24.
 | admin.productfetcher.online | Admin panel | 3001 |
 | api.productfetcher.online | Cloud API | 4000 |
 
-Local scraping stays in the Chrome extension + `apps/backend` (SQLite, port 3847) on the user's machine.
+Local scraping runs in the Chrome extension. When signed in, **run metadata and product details** sync to MongoDB on the VPS (`api.productfetcher.online`). **Product images and export files are never stored on the VPS** — they download directly to the user’s computer via Chrome. The optional local `apps/backend` (SQLite, port 3847) is only for offline/dev fallback.
+
+**Do not** deploy `apps/backend` with PM2. Cloud API + web are enough for production.
 
 ## 1. VPS baseline
 

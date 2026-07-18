@@ -99,9 +99,84 @@ export const api = {
     }),
 
   jobs: () =>
-    apiFetch<{ jobs: Array<{ _id: string; mode: string; status: string; productsSaved: number; createdAt: string }> }>(
-      '/v1/jobs',
-    ),
+    apiFetch<{
+      jobs: Array<{
+        _id: string;
+        mode: string;
+        status: string;
+        productsFound?: number;
+        productsSaved: number;
+        imagesDownloaded?: number;
+        errors?: number;
+        durationMs?: number;
+        websiteUrl?: string;
+        platform?: string;
+        categoryName?: string;
+        subcategoryName?: string;
+        projectId?: string;
+        createdAt: string;
+        metadata?: Record<string, unknown>;
+      }>;
+    }>('/v1/jobs'),
+
+  job: (id: string) =>
+    apiFetch<{
+      job: {
+        _id: string;
+        mode: string;
+        status: string;
+        productsFound?: number;
+        productsSaved: number;
+        imagesDownloaded?: number;
+        errors?: number;
+        errorMessages?: string[];
+        durationMs?: number;
+        websiteUrl?: string;
+        platform?: string;
+        categoryName?: string;
+        subcategoryName?: string;
+        sortFilter?: string;
+        maxProducts?: number;
+        projectId?: string;
+        createdAt: string;
+        metadata?: Record<string, unknown>;
+      };
+      products: Array<{
+        _id: string;
+        title?: string;
+        price?: number;
+        currency?: string;
+        productUrl?: string;
+        imageUrls?: string[];
+        imageCount?: number;
+        category?: string;
+        subcategory?: string;
+        sku?: string;
+        platform?: string;
+        scrapedAt?: string;
+      }>;
+      productCount: number;
+    }>(`/v1/jobs/${id}`),
+
+  deleteJob: (id: string) =>
+    apiFetch<{ success: boolean; deleted: boolean }>(`/v1/jobs/${id}`, { method: 'DELETE' }),
+
+  exportJob: async (id: string, format: 'json' | 'csv' = 'json') => {
+    const headers: Record<string, string> = {};
+    const token = getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/v1/jobs/${id}/export?format=${format}`, {
+      headers,
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Export failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const filename = format === 'csv' ? `fetcher-run-${id}.csv` : `fetcher-run-${id}.json`;
+    return { blob, filename };
+  },
 
   usage: () =>
     apiFetch<{ plan: string; aiCallsUsed: number; aiCallsLimit: number }>('/v1/billing/usage'),

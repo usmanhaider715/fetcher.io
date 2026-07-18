@@ -18,7 +18,7 @@ const formats: Array<{ value: ExportFormat; label: string; icon: React.ReactNode
 export function ExportPanel() {
   const sessionId = useDashboardStore((s) => s.stats.sessionId);
   const productsSaved = useDashboardStore((s) => s.stats.productsSaved);
-  const { ready: backendReady } = useBackendReady();
+  const { ready, cloud } = useBackendReady();
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const [lastExport, setLastExport] = useState<string | null>(null);
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
@@ -30,7 +30,7 @@ export function ExportPanel() {
     try {
       const result = await sendMessage<
         { format: ExportFormat; sessionId?: string },
-        { success?: boolean; count?: number; filename?: string; error?: string }
+        { success?: boolean; count?: number; filename?: string; error?: string; note?: string }
       >({
         type: 'EXPORT_AND_DOWNLOAD',
         payload: { format, sessionId },
@@ -41,8 +41,14 @@ export function ExportPanel() {
         return;
       }
 
+      if (!result.count || !result.filename) {
+        setLastExport('Export empty — scrape some products first, then try again.');
+        return;
+      }
+
       setLastExport(
-        `Downloaded ${result.count ?? 0} products as ${result.filename ?? format}. Save the file to your computer.`,
+        result.note ??
+          `Downloaded ${result.count} products as ${result.filename}. Images are in Downloads/fetcher-io.`,
       );
       setShowPurgeConfirm(true);
     } catch (error) {
@@ -56,7 +62,7 @@ export function ExportPanel() {
     setPurging(true);
     try {
       await sendMessage({ type: 'PURGE_SESSION' });
-      setLastExport('Local scrape data removed. Run summary remains on your dashboard.');
+      setLastExport('Local session cleared. Full run details stay on your dashboard until you delete them.');
       setShowPurgeConfirm(false);
     } catch (error) {
       setLastExport(error instanceof Error ? error.message : 'Cleanup failed');
@@ -74,16 +80,20 @@ export function ExportPanel() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 p-4 pt-0">
-        {!backendReady && (
-          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-800">
-            Data service offline. On your computer run: <code className="font-mono">pnpm dev:backend</code>
-            {' '}then reload the extension. Scraped files are stored locally until you download.
+        {cloud ? (
+          <p className="text-[10px] text-muted-foreground">
+            Signed in — product details sync to your dashboard. Images download to your computer (not the server).
           </p>
-        )}
+        ) : !ready ? (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-800">
+            Sign in to save runs to the cloud, or run <code className="font-mono">pnpm dev:backend</code> for
+            offline local saves.
+          </p>
+        ) : null}
 
         <p className="text-[10px] text-muted-foreground">
           {sessionId
-            ? `${productsSaved} products in current run — export then free local storage`
+            ? `${productsSaved} products in current run — export metadata, images already in Downloads`
             : 'Start a scrape session to export products'}
         </p>
 
@@ -94,7 +104,7 @@ export function ExportPanel() {
               variant="outline"
               size="sm"
               className="h-8 text-xs"
-              disabled={!sessionId || exporting !== null || !backendReady}
+              disabled={!sessionId || exporting !== null || !ready}
               onClick={() => handleExport(f.value)}
             >
               {f.icon}
@@ -110,7 +120,7 @@ export function ExportPanel() {
         {showPurgeConfirm && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
             <p className="text-[10px] font-medium text-destructive">
-              Download complete. Remove local images and product files from this run? Your dashboard keeps the run summary only.
+              Download complete. Clear this extension session? Dashboard history keeps full product details until you delete the run there.
             </p>
             <div className="flex gap-2">
               <Button
@@ -121,7 +131,7 @@ export function ExportPanel() {
                 onClick={handlePurge}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                {purging ? 'Removing…' : 'Free local data'}
+                {purging ? 'Clearing…' : 'Clear session'}
               </Button>
               <Button
                 size="sm"
@@ -129,7 +139,7 @@ export function ExportPanel() {
                 className="text-xs"
                 onClick={() => setShowPurgeConfirm(false)}
               >
-                Keep files
+                Keep
               </Button>
             </div>
           </div>

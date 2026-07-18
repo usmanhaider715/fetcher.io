@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { FolderPlus, Plus } from 'lucide-react';
+import { FolderPlus, Plus, Trash2 } from 'lucide-react';
 import type { Category } from '@fetcher/shared';
 import { sendMessage } from '@/lib/messaging';
 import { Button } from '@/components/ui/button';
@@ -55,15 +55,55 @@ export function CategoryManager({
     onError: (err: Error) => setError(err.message),
   });
 
+  const deleteCategory = useMutation({
+    mutationFn: (categoryId: string) =>
+      sendMessage({ type: 'DELETE_CATEGORY', payload: { categoryId } }),
+    onSuccess: (_data, categoryId) => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      if (selectedCategoryId === categoryId) {
+        onSelectionChange?.(null, null);
+      }
+      if (expandedCategory === categoryId) setExpandedCategory(null);
+      setError(null);
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const deleteSubcategory = useMutation({
+    mutationFn: ({ categoryId, subcategoryId }: { categoryId: string; subcategoryId: string }) =>
+      sendMessage({ type: 'DELETE_SUBCATEGORY', payload: { categoryId, subcategoryId } }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      if (selectedSubcategoryId === vars.subcategoryId) {
+        onSelectionChange?.(vars.categoryId, null);
+      }
+      setError(null);
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
   const selectCategory = (catId: string) => {
-    const next = expandedCategory === catId ? null : catId;
-    setExpandedCategory(next);
-    onSelectionChange?.(catId, null);
+    const closing = expandedCategory === catId;
+    setExpandedCategory(closing ? null : catId);
+    // Only clear subcategory when switching to a different category
+    if (selectedCategoryId !== catId) {
+      onSelectionChange?.(catId, null);
+    }
   };
 
   const selectSubcategory = (catId: string, subId: string) => {
+    setExpandedCategory(catId);
     onSelectionChange?.(catId, subId);
   };
+
+  const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
+  const selectedSubName = selectedCategory?.subcategories?.find(
+    (s) => s.id === selectedSubcategoryId,
+  )?.name;
+  const hasSubsWithoutSelection =
+    Boolean(selectedCategoryId) &&
+    !selectedSubcategoryId &&
+    (selectedCategory?.subcategories?.length ?? 0) > 0;
 
   if (isLoading) return null;
 
@@ -79,13 +119,21 @@ export function CategoryManager({
         {(selectedCategoryId || selectedSubcategoryId) && (
           <p className="text-[10px] text-muted-foreground">
             Scrape target:{' '}
-            {categories.find((c) => c.id === selectedCategoryId)?.name ?? '—'}
-            {selectedSubcategoryId &&
-              ` / ${
-                categories
-                  .find((c) => c.id === selectedCategoryId)
-                  ?.subcategories?.find((s) => s.id === selectedSubcategoryId)?.name ?? ''
-              }`}
+            <span className="font-medium text-foreground">
+              {selectedSubName
+                ? selectedSubName
+                : (selectedCategory?.name ?? '—')}
+            </span>
+            {selectedSubName && selectedCategory?.name
+              ? ` (in ${selectedCategory.name})`
+              : null}
+          </p>
+        )}
+
+        {hasSubsWithoutSelection && (
+          <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-400">
+            Click a subcategory below — scraping the parent category only is broader than your
+            subcategory.
           </p>
         )}
 
@@ -111,34 +159,85 @@ export function CategoryManager({
           </Button>
         </div>
 
-        <div className="max-h-32 space-y-1 overflow-y-auto">
+        <div className="max-h-40 space-y-1 overflow-y-auto">
           {categories.map((cat) => (
             <div key={cat.id}>
-              <button
-                type="button"
-                onClick={() => selectCategory(cat.id)}
-                className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-secondary/50 ${
+              <div
+                className={`flex w-full items-center gap-1 rounded-md px-1 py-0.5 ${
                   selectedCategoryId === cat.id && !selectedSubcategoryId ? 'bg-primary/10' : ''
                 }`}
               >
-                <span className="font-medium">{cat.name}</span>
-                <Badge variant="secondary" className="text-[10px]">
-                  {cat.subcategories?.length ?? 0}
-                </Badge>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => selectCategory(cat.id)}
+                  className="flex min-w-0 flex-1 items-center justify-between rounded-md px-1 py-1.5 text-xs hover:bg-secondary/50"
+                >
+                  <span className="truncate font-medium">{cat.name}</span>
+                  <Badge variant="secondary" className="ml-1 shrink-0 text-[10px]">
+                    {cat.subcategories?.length ?? 0}
+                  </Badge>
+                </button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 px-0 text-muted-foreground hover:text-destructive"
+                  title={`Delete ${cat.name}`}
+                  disabled={deleteCategory.isPending}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (
+                      window.confirm(
+                        `Delete category "${cat.name}" and all its subcategories?`,
+                      )
+                    ) {
+                      deleteCategory.mutate(cat.id);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
               {expandedCategory === cat.id && (
                 <div className="ml-3 space-y-1 border-l border-border pl-2">
                   {cat.subcategories?.map((sub) => (
-                    <button
+                    <div
                       key={sub.id}
-                      type="button"
-                      onClick={() => selectSubcategory(cat.id, sub.id)}
-                      className={`block w-full rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-secondary/50 ${
-                        selectedSubcategoryId === sub.id ? 'bg-primary/10 text-foreground' : ''
+                      className={`flex items-center gap-1 rounded px-1 ${
+                        selectedSubcategoryId === sub.id ? 'bg-primary/10' : ''
                       }`}
                     >
-                      {sub.name}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => selectSubcategory(cat.id, sub.id)}
+                        className={`min-w-0 flex-1 rounded px-2 py-1 text-left text-xs hover:bg-secondary/50 ${
+                          selectedSubcategoryId === sub.id
+                            ? 'font-medium text-foreground'
+                            : 'text-muted-foreground'
+                        }`}
+                      >
+                        {sub.name}
+                      </button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 px-0 text-muted-foreground hover:text-destructive"
+                        title={`Delete ${sub.name}`}
+                        disabled={deleteSubcategory.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Delete subcategory "${sub.name}"?`)) {
+                            deleteSubcategory.mutate({
+                              categoryId: cat.id,
+                              subcategoryId: sub.id,
+                            });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
                   ))}
                   <div className="flex gap-1">
                     <input
@@ -146,7 +245,10 @@ export function CategoryManager({
                       onChange={(e) => setNewSubcategory(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && newSubcategory.trim()) {
-                          createSubcategory.mutate({ categoryId: cat.id, name: newSubcategory.trim() });
+                          createSubcategory.mutate({
+                            categoryId: cat.id,
+                            name: newSubcategory.trim(),
+                          });
                         }
                       }}
                       placeholder="Subcategory..."
@@ -158,7 +260,10 @@ export function CategoryManager({
                       className="h-7 px-2"
                       disabled={!newSubcategory.trim() || createSubcategory.isPending}
                       onClick={() =>
-                        createSubcategory.mutate({ categoryId: cat.id, name: newSubcategory.trim() })
+                        createSubcategory.mutate({
+                          categoryId: cat.id,
+                          name: newSubcategory.trim(),
+                        })
                       }
                     >
                       <Plus className="h-3 w-3" />

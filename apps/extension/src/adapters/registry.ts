@@ -25,22 +25,24 @@ export class AdapterRegistry {
   private generic = new GenericAdapter();
 
   constructor() {
+    // Domain marketplaces FIRST — CMS detectors (Woo/Shopify) false-positive on
+    // sites that merely mention those platforms in marketing HTML.
     this.register(
-      new ShopifyAdapter(),
-      new WooCommerceAdapter(),
       new AmazonAdapter(),
       new EbayAdapter(),
       new EtsyAdapter(),
       new AliExpressAdapter(),
-      new BigCommerceAdapter(),
-      new MagentoAdapter(),
       new TemuAdapter(),
       new AlibabaAdapter(),
-      new PrestaShopAdapter(),
-      new OpenCartAdapter(),
       new CjDropshippingAdapter(),
       new SpocketAdapter(),
       new WalmartAdapter(),
+      new ShopifyAdapter(),
+      new WooCommerceAdapter(),
+      new BigCommerceAdapter(),
+      new MagentoAdapter(),
+      new PrestaShopAdapter(),
+      new OpenCartAdapter(),
     );
   }
 
@@ -53,13 +55,18 @@ export class AdapterRegistry {
   }
 
   detect(document: Document, url: string): IAdapter {
+    // Prefer hostname map before any HTML heuristic
+    const fromUrl = detectPlatformFromDocument(document, url);
+    if (fromUrl !== 'generic') {
+      const byPlatform = this.adapters.find((a) => a.platform === fromUrl);
+      if (byPlatform) return byPlatform;
+    }
+
     for (const adapter of this.adapters) {
       if (adapter.detect(document, url)) return adapter;
     }
 
-    const platform = detectPlatformFromDocument(document, url);
-    const match = this.adapters.find((a) => a.platform === platform);
-    return match ?? this.generic;
+    return this.generic;
   }
 
   getByPlatform(platform: Platform): IAdapter {

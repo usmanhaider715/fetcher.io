@@ -33,7 +33,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   licenseKey: '',
   productsFolder: 'Products',
   concurrentDownloads: 3,
-  asyncImageDownloads: true,
+  asyncImageDownloads: false,
   retryCount: 3,
   delayMs: 1000,
   randomizeDelay: true,

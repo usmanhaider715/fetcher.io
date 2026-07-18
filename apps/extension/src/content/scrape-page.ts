@@ -1,8 +1,8 @@
 import type { IAdapter, Product, StartScrapePayload } from '@fetcher/shared';
-import { delay, normalizeImageUrl } from '@fetcher/shared';
-import { AmazonAdapter } from '../adapters/platform.adapters';
+import { delay, normalizeImageUrl, parsePrice } from '@fetcher/shared';
+import { AliExpressAdapter, AmazonAdapter, CjDropshippingAdapter } from '../adapters/platform.adapters';
 import { adapterRegistry } from '../adapters/registry';
-import { applySortToUrl, filterProducts, findNextPageUrl } from './filters';
+import { applyScrapeFiltersToUrl, filterProducts, findNextPageUrl } from './filters';
 
 function notifyBackground(type: string, payload?: unknown): void {
   chrome.runtime.sendMessage({ type, payload }).catch(() => {});
@@ -15,22 +15,69 @@ function findCardForUrl(document: Document, productUrl: string): Element | null 
     if (card) return card;
   }
 
+  const itemId =
+    productUrl.match(/\/(?:item|i)\/(\d+)/i)?.[1] ??
+    productUrl.match(/\/product\/[^?\s]*?-p-([A-Za-z0-9-]+)\.html/i)?.[1];
+  if (itemId) {
+    const byHref = document.querySelector(
+      `a[href*="/item/${itemId}"], a[href*="/i/${itemId}"], a[href*="productId=${itemId}"], a[href*="-p-${itemId}"], a[href*="/product/"][href*="${itemId}"]`,
+    );
+    if (byHref) {
+      return (
+        byHref.closest(
+          '[class*="card"], [class*="Card"], [class*="item"], [class*="product"], li, article, div',
+        ) ?? byHref
+      );
+    }
+  }
+
   const anchors = document.querySelectorAll(
-    'a[href*="/dp/"], a[href*="/gp/product/"], a[href*="/products/"], a[href*="/itm/"], a[href*="/listing/"]',
+    'a[href*="/dp/"], a[href*="/gp/product/"], a[href*="/products/"], a[href*="/itm/"], a[href*="/listing/"], a[href*="/item/"], a[href*="/i/"], a[href*="/product/"], a[href*="-p-"]',
   );
   for (const anchor of anchors) {
     if (anchor instanceof HTMLAnchorElement) {
       const normalized = anchor.href.split('?')[0];
       const target = productUrl.split('?')[0];
-      if (normalized === target) {
+      if (normalized === target || (itemId && anchor.href.includes(itemId))) {
         return (
-          anchor.closest('[data-asin], .product-card, .product-item, .s-result-item, [data-product-id]') ??
-          anchor
+          anchor.closest(
+            '[data-asin], .product-card, .product-item, .s-result-item, [data-product-id], [class*="card"], [class*="search-item"], li, article',
+          ) ?? anchor
         );
       }
     }
   }
   return null;
+}
+
+function extractFromGenericCard(card: Element, productUrl: string, pageUrl: string, platform: Product['platform']): Product {
+  const title =
+    card.querySelector('h2, h3, h1, [class*="title"], [class*="Title"], a span')?.textContent?.trim() ||
+    card.querySelector('img')?.getAttribute('alt')?.trim() ||
+    undefined;
+
+  const priceText =
+    card.querySelector('[class*="price"], [class*="Price"], .price, .a-price')?.textContent?.trim() ??
+    undefined;
+
+  const img = card.querySelector('img');
+  const rawSrc =
+    img instanceof HTMLImageElement
+      ? img.src || img.dataset['src'] || img.getAttribute('data-src') || ''
+      : '';
+  const imageUrl = rawSrc ? normalizeImageUrl(rawSrc) : undefined;
+
+  return {
+    platform: platform ?? 'generic',
+    title: title || undefined,
+    price: priceText ? parsePrice(priceText) ?? undefined : undefined,
+    productUrl,
+    website: new URL(pageUrl).hostname,
+    scrapedDate: new Date().toISOString(),
+    imageUrls: imageUrl ? [imageUrl] : [],
+    images: imageUrl ? [{ url: imageUrl, isCover: true, position: 0 }] : [],
+    imageCount: imageUrl ? 1 : 0,
+  };
 }
 
 function extractListingProduct(
@@ -45,38 +92,49 @@ function extractListingProduct(
     return adapter.extractFromCard(card, productUrl, pageUrl);
   }
 
-  if (card) {
-    const title = card.querySelector('h2, h3, .title, [class*="title"], a span')?.textContent?.trim();
-    const priceText = card.querySelector('.price, .a-price, [class*="price"]')?.textContent?.trim();
-    const img = card.querySelector('img');
-
-    const product = adapter.extract(document, productUrl);
-    if (title) product.title = title;
-    if (priceText) {
-      const parsed = parseFloat(priceText.replace(/[^\d.]/g, ''));
-      if (!Number.isNaN(parsed)) product.price = parsed;
-    }
-    if (img instanceof HTMLImageElement) {
-      const src = normalizeImageUrl(img.src || img.dataset['src'] || '');
-      if (src) {
-        product.imageUrls = [src];
-        product.images = [{ url: src, isCover: true }];
-        product.imageCount = 1;
-      }
-    }
-    product.productUrl = productUrl;
-    return product;
+  if (adapter instanceof AliExpressAdapter && card) {
+    return adapter.extractFromCard(card, productUrl, pageUrl);
   }
 
-  return adapter.extract(document, productUrl);
+  if (adapter instanceof CjDropshippingAdapter && card) {
+    return adapter.extractFromCard(card, productUrl, pageUrl);
+  }
+
+  if (card) {
+    // Never call adapter.extract() on a listing page — that steals the page H1
+    return extractFromGenericCard(card, productUrl, pageUrl, adapter.platform);
+  }
+
+  // Minimal stub — enrichment will fetch the product page later
+  return {
+    platform: adapter.platform,
+    productUrl,
+    website: new URL(pageUrl).hostname,
+    scrapedDate: new Date().toISOString(),
+    title: undefined,
+    imageUrls: [],
+    images: [],
+    imageCount: 0,
+  };
 }
 
-async function scrollPage(steps = 3): Promise<void> {
+async function scrollPage(steps = 4): Promise<void> {
   for (let i = 0; i < steps; i++) {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-    await delay(1000);
+    window.scrollTo({ top: document.body.scrollHeight * ((i + 1) / steps), behavior: 'smooth' });
+    await delay(800);
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  await delay(400);
+}
+
+async function waitForProductLinks(adapter: IAdapter, pageUrl: string, attempts = 8): Promise<string[]> {
+  for (let i = 0; i < attempts; i++) {
+    const urls = adapter.findProducts(document, pageUrl);
+    if (urls.length > 0) return urls;
+    await scrollPage(2);
+    await delay(700);
+  }
+  return adapter.findProducts(document, pageUrl);
 }
 
 export async function scrapeCurrentPage(
@@ -87,7 +145,7 @@ export async function scrapeCurrentPage(
   const pageNumber = payload.pageNumber ?? 1;
 
   try {
-    if (payload.mode === 'entire_website') {
+    if (payload.mode === 'entire_website' || payload.mode === 'current_collection') {
       await scrollPage(4);
     }
 
@@ -109,7 +167,7 @@ export async function scrapeCurrentPage(
       payload.mode === 'current_collection' || payload.mode === 'entire_website';
 
     if (isListingMode) {
-      let productUrls = adapter.findProducts(document, pageUrl);
+      let productUrls = await waitForProductLinks(adapter, pageUrl);
       let products = productUrls.map((url) =>
         extractListingProduct(adapter, document, pageUrl, url),
       );
@@ -118,13 +176,35 @@ export async function scrapeCurrentPage(
         sortFilter: payload.sortFilter,
         minRating: payload.minRating,
         minReviews: payload.minReviews,
+        categoryName: payload.categoryName,
+        subcategoryName: payload.subcategoryName,
       });
 
       products = products.map((p) => ({
         ...p,
         imageUrls: p.imageUrls?.map(normalizeImageUrl).filter(Boolean),
         images: p.images?.map((img) => ({ ...img, url: normalizeImageUrl(img.url) })),
+        category: payload.categoryName ?? p.category,
+        subcategory: payload.subcategoryName ?? p.subcategory,
       }));
+
+      if ((payload.subcategoryName || payload.categoryName) && products.length === 0) {
+        notifyBackground('SCRAPE_LOG', {
+          id: Date.now().toString(),
+          level: 'warning',
+          message: `No products matched "${payload.subcategoryName ?? payload.categoryName}" on this page — select the subcategory (not only the parent), then Start again.`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      if (productUrls.length === 0) {
+        notifyBackground('SCRAPE_LOG', {
+          id: Date.now().toString(),
+          level: 'warning',
+          message: `No product links found on ${adapter.name} (${adapter.platform}). Scroll the page or try Current Collection after results load.`,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       const paginate =
         payload.mode === 'entire_website' || (payload.maxPages != null && payload.maxPages > 1);
@@ -163,7 +243,11 @@ export async function scrapeCurrentPage(
   }
 }
 
-export function getSortedStartUrl(url: string, sortFilter?: StartScrapePayload['sortFilter']): string {
-  if (!sortFilter || sortFilter === 'default') return url;
-  return applySortToUrl(url, sortFilter);
+export function getSortedStartUrl(
+  url: string,
+  sortFilter?: StartScrapePayload['sortFilter'],
+  categoryName?: string,
+  subcategoryName?: string,
+): string {
+  return applyScrapeFiltersToUrl(url, { sortFilter, categoryName, subcategoryName });
 }

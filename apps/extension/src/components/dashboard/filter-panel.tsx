@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 export interface ScrapeFilters {
   sortFilter: ProductSortFilter;
   maxPages: number;
+  /** Top N products to scrape from filtered search results (0 = no limit). */
+  maxProducts: number;
   minRating: number;
   minReviews: number;
 }
@@ -27,7 +29,7 @@ export function FilterPanel({ filters, onChange, showPagination = true }: Filter
           Sort & Filters
         </CardTitle>
         <CardDescription className="text-xs">
-          Sort results and filter by rating or review count
+          Extension searches your category, applies sort/filters, then scrapes the top products
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 p-4 pt-0">
@@ -51,10 +53,33 @@ export function FilterPanel({ filters, onChange, showPagination = true }: Filter
           </select>
         </div>
 
+        <div className="space-y-1">
+          <label htmlFor="max-products" className="text-xs font-medium text-muted-foreground">
+            Top products limit
+          </label>
+          <input
+            id="max-products"
+            type="number"
+            min={1}
+            max={500}
+            value={filters.maxProducts}
+            onChange={(e) =>
+              onChange({
+                ...filters,
+                maxProducts: Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 1)),
+              })
+            }
+            className={inputClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Scrape only the first N products after search + sort (e.g. 20 = top 20)
+          </p>
+        </div>
+
         {showPagination && (
           <div className="space-y-1">
             <label htmlFor="max-pages" className="text-xs font-medium text-muted-foreground">
-              Pages to scrape
+              Max pages (safety cap)
             </label>
             <input
               id="max-pages"
@@ -68,7 +93,7 @@ export function FilterPanel({ filters, onChange, showPagination = true }: Filter
               className={inputClass}
             />
             <p className="text-[10px] text-muted-foreground">
-              Number of listing pages to scrape (1 = current page only)
+              Stops earlier if the product limit is reached
             </p>
           </div>
         )}

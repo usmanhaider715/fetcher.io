@@ -66,11 +66,19 @@ export class UrlQueueOrchestrator {
     onLog(`URL queue: ${urls.length} products to scrape`, 'info');
     onUpdate({ productsFound: urls.length, productsSaved: 0, currentUrl: urls[0] });
 
-    for (let i = 0; i < urls.length; i++) {
+    const maxProducts =
+      payload.maxProducts && payload.maxProducts > 0 ? payload.maxProducts : null;
+    const queue = maxProducts ? urls.slice(0, maxProducts) : urls;
+    if (maxProducts) {
+      onLog(`Product limit: top ${maxProducts}`, 'info');
+    }
+
+    for (let i = 0; i < queue.length; i++) {
       if (!this.state || this.state.stopped) break;
       if (await this.waitWhilePaused()) break;
+      if (maxProducts != null && this.state.totalSaved >= maxProducts) break;
 
-      const url = urls[i]!;
+      const url = queue[i]!;
       if (this.state.processedUrls.has(url)) continue;
 
       this.state.index = i;
@@ -83,7 +91,7 @@ export class UrlQueueOrchestrator {
       try {
         await rateLimiter.wait(url);
         const started = Date.now();
-        onLog(`[${i + 1}/${urls.length}] Scraping ${url}`, 'info');
+        onLog(`[${i + 1}/${queue.length}] Scraping ${url}`, 'info');
 
         const product = await productEnricher.enrichFromProductPage({ productUrl: url } as Product);
         product.productUrl = url;
@@ -97,19 +105,19 @@ export class UrlQueueOrchestrator {
         }
 
         onUpdate({
-          productsFound: urls.length,
+          productsFound: queue.length,
           productsSaved: this.state.totalSaved,
           currentUrl: url,
         });
 
         await saveCheckpoint({
           sessionId,
-          payload: { ...payload, urls },
+          payload: { ...payload, urls: queue },
           tabUrl: url,
           listingUrl: url,
           currentPage: i + 1,
-          nextPageUrl: urls[i + 1] ?? null,
-          totalFound: urls.length,
+          nextPageUrl: queue[i + 1] ?? null,
+          totalFound: queue.length,
           totalSaved: this.state.totalSaved,
           processedProductUrls: Array.from(this.state.processedUrls),
           updatedAt: new Date().toISOString(),

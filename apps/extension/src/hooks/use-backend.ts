@@ -1,18 +1,28 @@
 import { useEffect, useState } from 'react';
-import { backendApi } from '@/lib/backend-api';
+import { sendMessage } from '@/lib/messaging';
 
+/** Ready when signed in (cloud saves) or local backend is up. */
 export function useBackendReady() {
   const [ready, setReady] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [cloud, setCloud] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await backendApi.init();
-      const ok = await backendApi.healthCheck();
-      if (!cancelled) {
-        setReady(ok);
-        setChecking(false);
+      try {
+        const status = (await sendMessage({ type: 'GET_BACKEND_STATUS' })) as {
+          connected?: boolean;
+          cloud?: boolean;
+        };
+        if (!cancelled) {
+          setReady(Boolean(status.connected));
+          setCloud(Boolean(status.cloud));
+        }
+      } catch {
+        if (!cancelled) setReady(false);
+      } finally {
+        if (!cancelled) setChecking(false);
       }
     })();
     return () => {
@@ -20,5 +30,5 @@ export function useBackendReady() {
     };
   }, []);
 
-  return { ready, checking };
+  return { ready, checking, cloud };
 }

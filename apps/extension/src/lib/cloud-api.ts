@@ -6,6 +6,36 @@ export interface CloudMeResponse {
   organization: { id: string; name: string; plan: string; slug: string } | null;
 }
 
+export interface CloudJobPayload {
+  mode: string;
+  websiteUrl?: string;
+  projectId?: string;
+  platform?: string;
+  categoryName?: string;
+  subcategoryName?: string;
+  sortFilter?: string;
+  maxProducts?: number;
+  productsFound?: number;
+  productsSaved?: number;
+  imagesDownloaded?: number;
+  status?: 'running' | 'completed' | 'failed' | 'interrupted';
+  metadata?: Record<string, unknown>;
+}
+
+export interface CloudProductPayload {
+  title?: string;
+  price?: number;
+  currency?: string;
+  productUrl?: string;
+  imageUrls?: string[];
+  imageCount?: number;
+  category?: string;
+  subcategory?: string;
+  sku?: string;
+  platform?: string;
+  scrapedAt?: string;
+}
+
 export class CloudApiClient {
   private baseUrl = DEFAULT_CLOUD_API_URL;
   private accessToken: string | null = null;
@@ -28,7 +58,7 @@ export class CloudApiClient {
     const res = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error ?? `Cloud API error ${res.status}`);
+      throw new Error((body as { error?: string }).error ?? `Cloud API error ${res.status}`);
     }
     return res.json() as Promise<T>;
   }
@@ -63,18 +93,56 @@ export class CloudApiClient {
     );
   }
 
-  async logJob(metadata: Record<string, unknown>) {
+  async logJob(payload: CloudJobPayload) {
     return this.request<{ success: boolean; job: { _id: string } }>('/v1/jobs', {
       method: 'POST',
-      body: JSON.stringify(metadata),
+      body: JSON.stringify(payload),
     });
   }
 
-  async updateJob(jobId: string, metadata: Record<string, unknown>) {
+  async updateJob(jobId: string, payload: Partial<CloudJobPayload> & Record<string, unknown>) {
     return this.request<{ success: boolean; job: { _id: string } }>(`/v1/jobs/${jobId}`, {
       method: 'PATCH',
-      body: JSON.stringify(metadata),
+      body: JSON.stringify(payload),
     });
+  }
+
+  async getJob(jobId: string) {
+    return this.request<{
+      job: Record<string, unknown> & { _id: string };
+      products: CloudProductPayload[];
+      productCount: number;
+    }>(`/v1/jobs/${jobId}`);
+  }
+
+  async appendProducts(jobId: string, products: CloudProductPayload[]) {
+    return this.request<{ success: boolean; saved: number }>(`/v1/jobs/${jobId}/products`, {
+      method: 'POST',
+      body: JSON.stringify({ products }),
+    });
+  }
+
+  async deleteJob(jobId: string) {
+    return this.request<{ success: boolean; deleted: boolean }>(`/v1/jobs/${jobId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async exportJob(jobId: string, format: 'json' | 'csv' = 'json'): Promise<{ blob: Blob; filename: string }> {
+    const headers: Record<string, string> = {};
+    if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+    const res = await fetch(`${this.baseUrl}/v1/jobs/${jobId}/export?format=${format}`, {
+      headers,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Export failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const filename =
+      format === 'csv' ? `fetcher-run-${jobId}.csv` : `fetcher-run-${jobId}.json`;
+    return { blob, filename };
   }
 
   async getProjects() {

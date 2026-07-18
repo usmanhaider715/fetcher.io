@@ -15,6 +15,7 @@ interface OrchestratorState {
   listingUrl: string;
   currentPage: number;
   maxPages: number;
+  maxProducts: number | null;
   totalFound: number;
   totalSaved: number;
   processedProductUrls: Set<string>;
@@ -51,6 +52,7 @@ export class ScrapeOrchestrator {
       listingUrl: tabUrl,
       currentPage: 1,
       maxPages: payload.maxPages ?? (payload.mode === 'entire_website' ? 10 : 1),
+      maxProducts: payload.maxProducts && payload.maxProducts > 0 ? payload.maxProducts : null,
       totalFound: 0,
       totalSaved: 0,
       processedProductUrls: new Set(),
@@ -60,13 +62,29 @@ export class ScrapeOrchestrator {
       waitingForLoad: false,
     };
 
-    const sortedUrl = getSortedStartUrl(tabUrl, payload.sortFilter);
+    const sortedUrl = getSortedStartUrl(
+      tabUrl,
+      payload.sortFilter,
+      payload.categoryName,
+      payload.subcategoryName,
+    );
     if (sortedUrl !== tabUrl) {
       this.state.waitingForLoad = true;
       this.state.listingUrl = sortedUrl;
-      onLog?.('Applying sort filter, loading page...', 'info');
+      const target = payload.subcategoryName ?? payload.categoryName;
+      const limitNote = this.state.maxProducts ? ` · top ${this.state.maxProducts}` : '';
+      onLog?.(
+        target
+          ? `Searching for "${target}", applying filters${payload.sortFilter && payload.sortFilter !== 'default' ? ` (${payload.sortFilter})` : ''}${limitNote}...`
+          : `Applying sort filter${limitNote}, loading page...`,
+        'info',
+      );
       await chrome.tabs.update(tabId, { url: sortedUrl });
       return;
+    }
+
+    if (this.state.maxProducts) {
+      onLog?.(`Product limit: top ${this.state.maxProducts}`, 'info');
     }
 
     await this.scrapePage(tabId, onLog);
@@ -81,6 +99,10 @@ export class ScrapeOrchestrator {
       listingUrl: checkpoint.listingUrl,
       currentPage: checkpoint.currentPage,
       maxPages: checkpoint.payload.maxPages ?? (checkpoint.payload.mode === 'entire_website' ? 10 : 1),
+      maxProducts:
+        checkpoint.payload.maxProducts && checkpoint.payload.maxProducts > 0
+          ? checkpoint.payload.maxProducts
+          : null,
       totalFound: checkpoint.totalFound,
       totalSaved: checkpoint.totalSaved,
       processedProductUrls: new Set(checkpoint.processedProductUrls),
@@ -137,7 +159,10 @@ export class ScrapeOrchestrator {
 
     this.state.waitingForLoad = false;
     this.state.listingUrl = (await chrome.tabs.get(tabId)).url ?? this.state.listingUrl;
-    await delay(1500);
+    // SPAs (AliExpress, etc.) need extra time after "complete" before cards exist
+    const host = this.state.listingUrl;
+    const spaWait = /aliexpress\.|temu\.|alibaba\.|cjdropshipping\./i.test(host) ? 3200 : 1500;
+    await delay(spaWait);
     await this.scrapePage(tabId);
   }
 
@@ -185,6 +210,13 @@ export class ScrapeOrchestrator {
       (p) => p.productUrl && !this.state!.processedProductUrls.has(p.productUrl),
     );
 
+    const remaining =
+      this.state.maxProducts != null
+        ? Math.max(0, this.state.maxProducts - this.state.totalSaved)
+        : pending.length;
+    const toProcess =
+      this.state.maxProducts != null ? pending.slice(0, remaining) : pending;
+
     this.state.totalFound += productsOnPage;
 
     onUpdate({
@@ -193,7 +225,12 @@ export class ScrapeOrchestrator {
       currentUrl: this.state.listingUrl,
     });
 
-    onLog(`Page ${pageNumber}: found ${productsOnPage} products (${pending.length} new)`, 'info');
+    onLog(
+      `Page ${pageNumber}: found ${productsOnPage} products (${toProcess.length} to scrape${
+        this.state.maxProducts != null ? `, limit ${this.state.maxProducts}` : ''
+      })`,
+      'info',
+    );
 
     const enrichProducts =
       this.state.payload.mode === 'current_collection' ||
@@ -202,11 +239,17 @@ export class ScrapeOrchestrator {
     const concurrency = this.state.payload.productConcurrency ?? 2;
 
     await runPool(
-      pending,
+      toProcess,
       concurrency,
       async (product) => {
         if (!this.state || this.state.stopped) return;
         if (await this.waitWhilePaused()) return;
+        if (
+          this.state.maxProducts != null &&
+          this.state.totalSaved >= this.state.maxProducts
+        ) {
+          return;
+        }
 
         let toSave = product;
         const started = Date.now();
@@ -245,7 +288,10 @@ export class ScrapeOrchestrator {
           await this.persistCheckpoint();
         }
       },
-      () => this.state?.stopped ?? true,
+      () =>
+        (this.state?.stopped ?? true) ||
+        (this.state?.maxProducts != null &&
+          this.state.totalSaved >= this.state.maxProducts),
     );
 
     onUpdate({
@@ -253,6 +299,19 @@ export class ScrapeOrchestrator {
       productsSaved: this.state.totalSaved,
       currentUrl: this.state.listingUrl,
     });
+
+    const hitProductLimit =
+      this.state.maxProducts != null && this.state.totalSaved >= this.state.maxProducts;
+
+    if (hitProductLimit) {
+      onLog(
+        `Reached top ${this.state.maxProducts} products — stopping (${this.state.totalSaved} saved)`,
+        'success',
+      );
+      this.state = null;
+      onComplete();
+      return;
+    }
 
     const shouldPaginate =
       (this.state.payload.mode === 'entire_website' || this.state.maxPages > 1) &&

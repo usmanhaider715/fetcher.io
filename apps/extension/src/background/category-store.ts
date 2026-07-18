@@ -76,3 +76,24 @@ export async function createSubcategory(categoryId: string, name: string): Promi
   await saveCategories(categories);
   return sub;
 }
+
+export async function deleteCategory(categoryId: string): Promise<void> {
+  const categories = await loadCategories();
+  const next = categories.filter((c) => c.id !== categoryId);
+  if (next.length === categories.length) throw new Error('Category not found');
+  await saveCategories(next);
+}
+
+export async function deleteSubcategory(categoryId: string, subcategoryId: string): Promise<void> {
+  const categories = await loadCategories();
+  const category = categories.find((c) => c.id === categoryId);
+  if (!category) throw new Error('Category not found');
+
+  const before = category.subcategories?.length ?? 0;
+  category.subcategories = (category.subcategories ?? []).filter((s) => s.id !== subcategoryId);
+  if ((category.subcategories?.length ?? 0) === before) {
+    throw new Error('Subcategory not found');
+  }
+  category.updatedAt = new Date().toISOString();
+  await saveCategories(categories);
+}

@@ -316,6 +316,9 @@ export type MessageType =
   | 'GET_CATEGORIES'
   | 'CREATE_CATEGORY'
   | 'CREATE_SUBCATEGORY'
+  | 'DELETE_CATEGORY'
+  | 'DELETE_SUBCATEGORY'
+  | 'PERFORM_SITE_SEARCH'
   | 'GET_PROJECTS'
   | 'ENSURE_DEFAULT_PROJECT'
   | 'GET_BACKEND_STATUS'
@@ -340,9 +343,13 @@ export interface StartScrapePayload {
   urls?: string[];
   categoryId?: string;
   subcategoryId?: string;
+  categoryName?: string;
+  subcategoryName?: string;
   projectId?: string;
   sortFilter?: ProductSortFilter;
   maxPages?: number;
+  /** Stop after saving this many products (top N from filtered results). */
+  maxProducts?: number;
   minRating?: number;
   minReviews?: number;
   respectRobots?: boolean;
